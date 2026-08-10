@@ -42,3 +42,22 @@ app.use(notFound);
 app.use(errorHandler);
 
 module.exports = app;
+
+// Root route — simple health check
+app.get('/', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: "Mama na Mtoto+ API is running and connected to the DB!" 
+  });
+});
+
+// Catch-all for undefined routes
+app.use('*', (req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    error: { 
+      code: "NOT_FOUND", 
+      message: "Route not found" 
+    } 
+  });
+});

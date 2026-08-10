@@ -1,5 +1,13 @@
 const express = require("express");
+const router = express.Router();
+const alertsController = require('../controllers/alertsController');
+
+// POST /api/alerts/danger
+router.post('/danger', alertsController.fireDangerAlert);
+
+module.exports = router;
 const { validate } = require("../middleware/validate");
+
 const { createDangerAlert } = require("../controllers/alertsController");
 
 const router = express.Router();
