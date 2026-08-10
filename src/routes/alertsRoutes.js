@@ -10,7 +10,7 @@ const { validate } = require("../middleware/validate");
 
 const { createDangerAlert } = require("../controllers/alertsController");
 
-const router = express.Router();
+
 
 const dangerAlertSchema = {
   phone: { required: true, type: "string", pattern: /^\+?[1-9]\d{7,14}$/ },
