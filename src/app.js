@@ -30,20 +30,12 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
+// ✅ Health check
 app.get("/health", (_req, res) => {
   res.status(200).json({ success: true, data: { status: "healthy", service: "Mama na Mtoto+ API" } });
 });
 
-app.use("/auth", authRoutes);
-app.use("/mothers", mothersRoutes);
-app.use("/alerts", alertsRoutes);
-
-app.use(notFound);
-app.use(errorHandler);
-
-module.exports = app;
-
-// Root route — simple health check
+//  Root route (Moved this BEFORE the route imports and module.exports!)
 app.get('/', (req, res) => {
   res.json({ 
     success: true, 
@@ -51,13 +43,15 @@ app.get('/', (req, res) => {
   });
 });
 
-// Catch-all for undefined routes
-app.use('*', (req, res) => {
-  res.status(404).json({ 
-    success: false, 
-    error: { 
-      code: "NOT_FOUND", 
-      message: "Route not found" 
-    } 
-  });
-});
+// Routes
+app.use("/auth", authRoutes);
+app.use("/mothers", mothersRoutes);
+app.use("/alerts", alertsRoutes);
+
+
+// The 'notFound' middleware from errorHandler already handles this.
+
+app.use(notFound);
+app.use(errorHandler);
+
+module.exports = app;
