@@ -1,16 +1,8 @@
 const express = require('express');
-const router = express.Router();
-const alertsController = require('../controllers/alertsController');
-
-// POST /api/alerts/danger
-router.post('/danger', alertsController.createDangerAlert);
-
-module.exports = router;
 const { validate } = require("../middleware/validate");
-
 const { createDangerAlert } = require("../controllers/alertsController");
 
-
+const router = express.Router(); // <-- only one declaration
 
 const dangerAlertSchema = {
   phone: { required: true, type: "string", pattern: /^\+?[1-9]\d{7,14}$/ },
