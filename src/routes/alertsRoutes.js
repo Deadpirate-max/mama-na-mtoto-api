@@ -1,9 +1,9 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
 const alertsController = require('../controllers/alertsController');
 
 // POST /api/alerts/danger
-router.post('/danger', alertsController.fireDangerAlert);
+router.post('/danger', alertsController.createDangerAlert);
 
 module.exports = router;
 const { validate } = require("../middleware/validate");
