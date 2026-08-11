@@ -35,4 +35,6 @@ router.patch("/:phone/labs/:id", updateLabResult);
 
 router.patch("/:phone/vaccinations/:id", updateVaccination);
 
+router.post('/upload-photo', mothersController.uploadProfilePhoto);
+
 module.exports = router;

@@ -87,3 +87,24 @@ const updateMother = asyncHandler(async (req, res) => {
 });
 
 module.exports = { createMother, getMotherByPhone, updateMother };
+
+const supabase = require('../db/supabase');
+
+exports.uploadProfilePhoto = async (req, res) => {
+  const { phone, base64Image } = req.body; // Frontend sends the base64 string
+  const buffer = Buffer.from(base64Image.replace(/^data:image\/\w+;base64,/, ""), 'base64');
+  const filename = `avatars/${phone}.jpg`;
+
+  const { data, error } = await supabase.storage
+    .from('profiles')
+    .upload(filename, buffer, { contentType: 'image/jpeg', upsert: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  const { data: urlData } = supabase.storage.from('profiles').getPublicUrl(filename);
+
+  // Save the public URL to your PostgreSQL database
+  await pool.query('UPDATE mothers SET profile_photo_url = $1 WHERE phone = $2', [urlData.publicUrl, phone]);
+
+  res.json({ success: true, profilePhotoUrl: urlData.publicUrl });
+};
