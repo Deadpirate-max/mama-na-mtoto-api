@@ -11,6 +11,10 @@ const { updateVaccination } = require("../controllers/vaccinationsController");
 const mothersController = require('../controllers/mothersController');
 
 const router = express.Router();
+exports.uploadProfilePhoto = async (req, res) => {
+  // Placeholder – implement later with Supabase Storage
+  res.status(200).json({ success: true, message: "Photo upload endpoint (coming soon)" });
+};
 
 const createMotherSchema = {
   phone: { required: true, type: "string", pattern: /^\+?[1-9]\d{7,14}$/ },
@@ -36,6 +40,6 @@ router.patch("/:phone/labs/:id", updateLabResult);
 
 router.patch("/:phone/vaccinations/:id", updateVaccination);
 
-router.post('/upload-photo', mothersController.uploadProfilePhoto);
+//router.post('/upload-photo', mothersController.uploadProfilePhoto);
 
 module.exports = router;
