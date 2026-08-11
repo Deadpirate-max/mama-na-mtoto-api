@@ -8,6 +8,7 @@ const {
 const { updateVisit } = require("../controllers/visitsController");
 const { updateLabResult } = require("../controllers/labsController");
 const { updateVaccination } = require("../controllers/vaccinationsController");
+const mothersController = require('../controllers/mothersController');
 
 const router = express.Router();
 
