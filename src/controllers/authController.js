@@ -9,34 +9,45 @@ const OTP_MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || "5", 10);
 
 const PHONE_PATTERN = /^\+?[1-9]\d{7,14}$/;
 
-const requestOtp = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
+const pool = require('../db/pool');
+const bcrypt = require('bcryptjs');
+const { generateOTP } = require('../utils/otp'); // Assume you have a helper for OTP
 
-  if (!phone || !PHONE_PATTERN.test(phone)) {
-    throw new ApiError(422, "A valid phone number is required", errorCodes.VALIDATION_ERROR, [
-      { field: "phone", message: "phone must be in international format, e.g. +255712345678" },
-    ]);
+exports.requestOTP = async (req, res) => {
+  const { phone, password } = req.body;
+
+  // 1. Fetch mother by phone
+  const result = await pool.query('SELECT id, password_hash FROM mothers WHERE phone = $1', [phone]);
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ success: false, error: 'Mother not found' });
   }
 
-  const code = generateOtp(OTP_LENGTH);
-  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+  const mother = result.rows[0];
 
+  // 2. Verify password (if a password_hash exists)
+  if (mother.password_hash) {
+    const valid = await bcrypt.compare(password, mother.password_hash);
+    if (!valid) {
+      return res.status(401).json({ success: false, error: 'Invalid password' });
+    }
+  }
+
+  // 3. Generate OTP (6‑digit code)
+  const otpCode = generateOTP(); // e.g., Math.floor(100000 + Math.random() * 900000)
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+  // 4. Save OTP to otp_codes table
   await pool.query(
-    `INSERT INTO otp_codes (phone, code, expires_at)
-     VALUES ($1, $2, $3)`,
-    [phone, code, expiresAt],
+    'INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)',
+    [phone, otpCode, expiresAt]
   );
 
-  console.log(`[OTP] ${phone} → ${code} (valid ${OTP_TTL_MINUTES} min)`);
+  // 5. (Optional) Send OTP via SMS (if we intergrate Africa's Talking)
+  // await sendSMS(phone, `Your OTP is ${otpCode}`);
 
-  res.status(200).json({
-    success: true,
-    data: {
-      message: "OTP sent successfully",
-      expires_in_minutes: OTP_TTL_MINUTES,
-    },
-  });
-});
+  res.json({ success: true, message: 'OTP sent successfully' });
+};
 
 const verifyOtp = asyncHandler(async (req, res) => {
   const { phone, code } = req.body;

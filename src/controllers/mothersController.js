@@ -18,6 +18,25 @@ const createMother = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: rows[0] });
 });
 
+const bcrypt = require('bcryptjs');
+
+exports.createMother = async (req, res) => {
+  const { name, phone, age, weeks_pregnant, county, id_number, password } = req.body;
+
+  // Hash password
+  const salt = await bcrypt.genSalt(10);
+  const password_hash = await bcrypt.hash(password, salt);
+
+  const result = await pool.query(
+    `INSERT INTO mothers (name, phone, age, weeks_pregnant, county, id_number, password_hash)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id`,
+    [name, phone, age, weeks_pregnant, county, id_number, password_hash]
+  );
+
+  res.status(201).json({ success: true, data: { id: result.rows[0].id } });
+};
+
 const getMotherByPhone = asyncHandler(async (req, res) => {
   const { phone } = req.params;
 

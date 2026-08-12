@@ -11,11 +11,15 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "expo": "~57.0.7",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "react": "19.2.3",
+    "react-native": "0.86.0"
   }
 }

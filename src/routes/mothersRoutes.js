@@ -16,6 +16,16 @@ exports.uploadProfilePhoto = async (req, res) => {
   res.status(200).json({ success: true, message: "Photo upload endpoint (coming soon)" });
 };
 
+const motherSchema = {
+  name: { required: true, type: 'string' },
+  phone: { required: true, type: 'string', pattern: /^\+?[1-9]\d{7,14}$/ },
+  age: { type: 'number' },
+  weeks_pregnant: { type: 'number' },
+  county: { type: 'string' },
+  id_number: { type: 'string' },
+  password: { required: true, type: 'string', min: 6 }, // Add this
+};
+
 const createMotherSchema = {
   phone: { required: true, type: "string", pattern: /^\+?[1-9]\d{7,14}$/ },
   name: { required: true, type: "string" },
