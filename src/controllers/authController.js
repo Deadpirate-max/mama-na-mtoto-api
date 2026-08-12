@@ -11,42 +11,59 @@ const PHONE_PATTERN = /^\+?[1-9]\d{7,14}$/;
 
 const pool = require('../db/pool');
 const bcrypt = require('bcryptjs');
-const { generateOTP } = require('../utils/otp'); // Assume you have a helper for OTP
+// If you have a generateOTP helper, import it. If not, generate it inline.
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 exports.requestOTP = async (req, res) => {
   const { phone, password } = req.body;
 
-  // 1. Fetch mother by phone
-  const result = await pool.query('SELECT id, password_hash FROM mothers WHERE phone = $1', [phone]);
+  try {
+    // 1. Fetch mother by phone
+    const result = await pool.query('SELECT id, password_hash FROM mothers WHERE phone = $1', [phone]);
 
-  if (result.rows.length === 0) {
-    return res.status(404).json({ success: false, error: 'Mother not found' });
-  }
-
-  const mother = result.rows[0];
-
-  // 2. Verify password (if a password_hash exists)
-  if (mother.password_hash) {
-    const valid = await bcrypt.compare(password, mother.password_hash);
-    if (!valid) {
-      return res.status(401).json({ success: false, error: 'Invalid password' });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: { code: "NOT_FOUND", message: "Mother not found" } 
+      });
     }
+
+    const mother = result.rows[0];
+
+    // 2. Verify password (if a password_hash exists)
+    if (mother.password_hash) {
+      const valid = await bcrypt.compare(password, mother.password_hash);
+      if (!valid) {
+        return res.status(401).json({ 
+          success: false, 
+          error: { code: "UNAUTHORIZED", message: "Invalid password" } 
+        });
+      }
+    }
+
+    // 3. Generate OTP (6‑digit code)
+    const otpCode = generateOTP(); 
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+    // 4. Save OTP to otp_codes table
+    await pool.query(
+      'INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)',
+      [phone, otpCode, expiresAt]
+    );
+
+  
+    res.json({ 
+      success: true, 
+      message: 'OTP sent successfully' 
+    });
+
+  } catch (error) {
+    console.error('OTP Request Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: { code: "INTERNAL_ERROR", message: "Failed to request OTP" } 
+    });
   }
-
-  // 3. Generate OTP (6‑digit code)
-  const otpCode = generateOTP(); // e.g., Math.floor(100000 + Math.random() * 900000)
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
-
-  // 4. Save OTP to otp_codes table
-  await pool.query(
-    'INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)',
-    [phone, otpCode, expiresAt]
-  );
-
-  // 5. (Optional) Send OTP via SMS (if we intergrate Africa's Talking)
-  // await sendSMS(phone, `Your OTP is ${otpCode}`);
-
-  res.json({ success: true, message: 'OTP sent successfully' });
 };
 
 const verifyOtp = asyncHandler(async (req, res) => {
