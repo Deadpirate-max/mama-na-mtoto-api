@@ -3,6 +3,8 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
+const registrationsRoutes = require('./routes/registrationsRoutes');
+app.use('/registrations', registrationsRoutes);
 const authRoutes = require("./routes/authRoutes");
 const mothersRoutes = require("./routes/mothersRoutes");
 const alertsRoutes = require("./routes/alertsRoutes");
