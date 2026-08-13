@@ -1,16 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+const { generateCode } = require('../utils/codeGenerator');
 
-// Helper: generate 8-character alphanumeric code (e.g., MNM-K7X2)
-function generateCode() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
 
 // GET /api/registrations/:code
 router.get('/:code', async (req, res) => {
