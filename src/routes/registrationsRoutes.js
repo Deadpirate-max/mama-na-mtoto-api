@@ -1,3 +1,46 @@
+const express = require('express');
+const router = express.Router();
+const pool = require('../db/pool');
+
+// Helper: generate 8-character alphanumeric code (e.g., MNM-K7X2)
+function generateCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    if (i === 4) code += '-';
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+// GET /api/registrations/:code
+router.get('/:code', async (req, res) => {
+  const { code } = req.params;
+  const result = await pool.query(
+    `SELECT * FROM registration_codes
+     WHERE code = $1 AND used = FALSE AND expires_at > NOW()`,
+    [code]
+  );
+  if (result.rows.length === 0) {
+    return res.status(404).json({
+      success: false,
+      error: 'Invalid or expired registration code'
+    });
+  }
+  res.json({ success: true, data: result.rows[0] });
+});
+
+// POST /api/registrations/:code/use
+router.post('/:code/use', async (req, res) => {
+  const { code } = req.params;
+  await pool.query(
+    `UPDATE registration_codes SET used = TRUE, used_at = NOW() WHERE code = $1`,
+    [code]
+  );
+  res.json({ success: true });
+});
+
+// POST /api/registrations (nurse generates a new code)
 router.post('/', async (req, res) => {
   try {
     const { motherPhone, motherName, weeksPregnant, chvPhone, facilityName, facilityCode } = req.body;
@@ -33,7 +76,6 @@ router.post('/', async (req, res) => {
     });
 
   } catch (error) {
-    // ✨ THIS WILL FINALLY SHOW THE ERROR ON RAILWAY AND IN YOUR CURL RESPONSE ✨
     console.error('💥 Registration Route Crash:', error);
     res.status(500).json({ 
       success: false, 
@@ -41,3 +83,5 @@ router.post('/', async (req, res) => {
     });
   }
 });
+
+module.exports = router;
