@@ -3,20 +3,34 @@ const bcrypt = require("bcryptjs");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { generateOtp } = require("../utils/otp");
+// If you don't have a generateOtp utility, you can keep the Math.random() approach
 
 const OTP_LENGTH = parseInt(process.env.OTP_LENGTH || "6", 10);
 const OTP_TTL_MINUTES = parseInt(process.env.OTP_TTL_MINUTES || "5", 10);
 const OTP_MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || "5", 10);
-const PHONE_PATTERN = /^\+?[1-9]\d{7,14}$/;
 
-// ── Request OTP (with password verification) ──
+// ── Normalize Kenyan phone numbers ──
+const normalizeKenyanPhone = (phone) => {
+  let p = phone.toString().trim().replace(/[\s\-\(\)]/g, '');
+  if (p.startsWith('0')) {
+    p = '+254' + p.substring(1);
+  } else if (p.startsWith('254') && !p.startsWith('+254')) {
+    p = '+' + p;
+  } else if (!p.startsWith('+')) {
+    p = '+' + p;
+  }
+  return p;
+};
+
+// ── Request OTP ──
 const requestOtp = asyncHandler(async (req, res) => {
-  const { phone, password } = req.body;
+  let { phone, password } = req.body;
 
-  if (!phone || !PHONE_PATTERN.test(phone)) {
-    throw new ApiError(422, "A valid phone number is required", errorCodes.VALIDATION_ERROR, [
-      { field: "phone", message: "Phone must be in international format" },
-    ]);
+  // ── Normalize phone ──
+  phone = normalizeKenyanPhone(phone);
+
+  if (!phone || !/^\+?[1-9]\d{7,14}$/.test(phone)) {
+    throw new ApiError(422, "A valid phone number is required", errorCodes.VALIDATION_ERROR);
   }
 
   // 1. Fetch mother by phone
@@ -36,17 +50,19 @@ const requestOtp = asyncHandler(async (req, res) => {
     }
   }
 
-  // 3. Generate OTP using your utility
-  const otpCode = generateOtp(OTP_LENGTH);
+  // 3. Generate OTP
+  const otpCode = generateOtp(OTP_LENGTH); // or use Math.random equivalent
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
-  // 4. Save OTP to otp_codes table
+  // 4. Delete old OTPs and save new one
+  await pool.query("DELETE FROM otp_codes WHERE phone = $1 AND used = FALSE", [phone]);
   await pool.query(
     "INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)",
     [phone, otpCode, expiresAt]
   );
 
-  // 5. (Optional) Send OTP via Africa's Talking SMS here
+  // 5. (Optional) Send OTP via SMS - we'll leave this commented until AT is fully ready
+  // ...
 
   res.status(200).json({
     success: true,
@@ -54,20 +70,19 @@ const requestOtp = asyncHandler(async (req, res) => {
   });
 });
 
-// ── Verify OTP (existing logic) ──
+// ── Verify OTP ──
 const verifyOtp = asyncHandler(async (req, res) => {
-  const { phone, code } = req.body;
+  let { phone, code } = req.body;
 
-  if (!phone || !PHONE_PATTERN.test(phone)) {
-    throw new ApiError(422, "A valid phone number is required", errorCodes.VALIDATION_ERROR, [
-      { field: "phone", message: "Phone must be in international format" },
-    ]);
+  // ── Normalize phone ──
+  phone = normalizeKenyanPhone(phone);
+
+  if (!phone || !/^\+?[1-9]\d{7,14}$/.test(phone)) {
+    throw new ApiError(422, "A valid phone number is required", errorCodes.VALIDATION_ERROR);
   }
 
   if (!code) {
-    throw new ApiError(422, "OTP code is required", errorCodes.VALIDATION_ERROR, [
-      { field: "code", message: "Code is required" },
-    ]);
+    throw new ApiError(422, "OTP code is required", errorCodes.VALIDATION_ERROR);
   }
 
   const { rows } = await pool.query(
@@ -93,7 +108,7 @@ const verifyOtp = asyncHandler(async (req, res) => {
     throw new ApiError(429, "Maximum verification attempts exceeded. Please request a new OTP.", errorCodes.TOO_MANY_REQUESTS);
   }
 
-  if (otp.code !== code) {
+  if (otp.code !== code.toString().trim()) {
     await pool.query("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1", [otp.id]);
     const remaining = OTP_MAX_ATTEMPTS - (otp.attempts + 1);
     throw new ApiError(401, `Invalid OTP code. ${remaining} attempt(s) remaining.`, errorCodes.UNAUTHORIZED);
@@ -101,12 +116,21 @@ const verifyOtp = asyncHandler(async (req, res) => {
 
   await pool.query("UPDATE otp_codes SET verified = true WHERE id = $1", [otp.id]);
 
+  // Check if mother exists
+  const motherCheck = await pool.query("SELECT * FROM mothers WHERE phone = $1", [phone]);
+  const isNewUser = motherCheck.rows.length === 0;
+
+  // Generate JWT token (if you use JWT)
+  // const token = jwt.sign({ phone, isNewUser }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
   res.status(200).json({
     success: true,
     data: {
       message: "OTP verified successfully",
       phone,
       verified: true,
+      isNewUser,
+      // token, // uncomment if using JWT
     },
   });
 });
