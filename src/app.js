@@ -4,14 +4,15 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
 const registrationsRoutes = require('./routes/registrationsRoutes');
-
 const authRoutes = require("./routes/authRoutes");
+const nursesRoutes = require('./routes/nursesRoutes');
 const mothersRoutes = require("./routes/mothersRoutes");
 const alertsRoutes = require("./routes/alertsRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 
 const app = express();
 
+app.use('/nurses', nursesRoutes);
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors());
