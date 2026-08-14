@@ -102,11 +102,12 @@ const verifyOtp = asyncHandler(async (req, res) => {
     throw new ApiError(429, "Maximum verification attempts exceeded. Please request a new OTP.", errorCodes.TOO_MANY_REQUESTS);
   }
 
-  if (otp.code.toString().trim() !== code.toString().trim()) {
-    await pool.query("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1", [otp.id]);
-    const remaining = OTP_MAX_ATTEMPTS - (otp.attempts + 1);
-    throw new ApiError(401, `Invalid OTP code. ${remaining} attempt(s) remaining.`, errorCodes.UNAUTHORIZED);
-  }
+  // Replace your current 'if' check with this:
+if (String(otp.code).trim() !== String(code).trim()) {
+  await pool.query("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1", [otp.id]);
+  const remaining = OTP_MAX_ATTEMPTS - (otp.attempts + 1);
+  throw new ApiError(401, `Invalid OTP code. ${remaining} attempt(s) remaining.`, errorCodes.UNAUTHORIZED);
+}
 
   await pool.query("UPDATE otp_codes SET verified = true WHERE id = $1", [otp.id]);
 

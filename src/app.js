@@ -27,19 +27,19 @@ app.use('/registrations', registrationsRoutes);
 const adminRoutes = require('./routes/adminRoutes');
 app.use('/admin', adminRoutes);
 
-const globalLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000", 10),
-  max: parseInt(process.env.RATE_LIMIT_MAX || "100", 10),
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: {
-      code: "TOO_MANY_REQUESTS",
-      message: "Too many requests from this IP. Please try again later.",
-    },
-  },
-});
+//const globalLimiter = rateLimit({
+//  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000", 10),
+//  max: parseInt(process.env.RATE_LIMIT_MAX || "100", 10),
+//  standardHeaders: true,
+//  legacyHeaders: false,
+//  message: {
+//    success: false,
+//    error: {
+//      code: "TOO_MANY_REQUESTS",
+//      message: "Too many requests from this IP. Please try again later.",
+//    },
+//  },
+//});
 app.use(globalLimiter);
 
 // ✅ Health check
