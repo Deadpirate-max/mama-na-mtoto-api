@@ -35,12 +35,37 @@ const requestOtp = asyncHandler(async (req, res) => {
 
   // 1. Fetch mother by phone
   const result = await pool.query("SELECT id, password_hash FROM mothers WHERE phone = $1", [phone]);
+  const mother = result.rows.length > 0 ? result.rows[0] : null;
 
-  if (result.rows.length === 0) {
-    throw new ApiError(404, "Mother not found. Please register first.", errorCodes.NOT_FOUND);
+  // 2. Verify password ONLY IF the user exists AND has a password_hash set
+  if (mother && mother.password_hash) {
+    // If they have a password, they MUST provide it to sign in
+    if (!password) {
+      throw new ApiError(401, "Password is required for this account.", errorCodes.UNAUTHORIZED);
+    }
+    const valid = await bcrypt.compare(password, mother.password_hash);
+    if (!valid) {
+      throw new ApiError(401, "Invalid password", errorCodes.UNAUTHORIZED);
+    }
   }
+  // If the mother doesn't exist, we SKIP the password check (this is a new onboarding user).
 
-  const mother = result.rows[0];
+  // 3. Generate OTP
+  const otpCode = generateOtp(OTP_LENGTH);
+  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+
+  // 4. Delete old OTPs and save new one
+  await pool.query("DELETE FROM otp_codes WHERE phone = $1 AND used = FALSE", [phone]);
+  await pool.query(
+    "INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)",
+    [phone, otpCode, expiresAt]
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "OTP sent successfully",
+  });
+});
 
   // 2. Verify password (if a password_hash exists)
   if (mother.password_hash) {
@@ -68,7 +93,6 @@ const requestOtp = asyncHandler(async (req, res) => {
     success: true,
     message: "OTP sent successfully",
   });
-});
 
 // ── Verify OTP ──
 const verifyOtp = asyncHandler(async (req, res) => {
