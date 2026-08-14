@@ -3,7 +3,6 @@ const bcrypt = require("bcryptjs");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { generateOtp } = require("../utils/otp");
-// If you don't have a generateOtp utility, you can keep the Math.random() approach
 
 const OTP_LENGTH = parseInt(process.env.OTP_LENGTH || "6", 10);
 const OTP_TTL_MINUTES = parseInt(process.env.OTP_TTL_MINUTES || "5", 10);
@@ -39,7 +38,6 @@ const requestOtp = asyncHandler(async (req, res) => {
 
   // 2. Verify password ONLY IF the user exists AND has a password_hash set
   if (mother && mother.password_hash) {
-    // If they have a password, they MUST provide it to sign in
     if (!password) {
       throw new ApiError(401, "Password is required for this account.", errorCodes.UNAUTHORIZED);
     }
@@ -48,7 +46,6 @@ const requestOtp = asyncHandler(async (req, res) => {
       throw new ApiError(401, "Invalid password", errorCodes.UNAUTHORIZED);
     }
   }
-  // If the mother doesn't exist, we SKIP the password check (this is a new onboarding user).
 
   // 3. Generate OTP
   const otpCode = generateOtp(OTP_LENGTH);
@@ -66,33 +63,6 @@ const requestOtp = asyncHandler(async (req, res) => {
     message: "OTP sent successfully",
   });
 });
-
-  // 2. Verify password (if a password_hash exists)
-  if (mother.password_hash) {
-    const valid = await bcrypt.compare(password, mother.password_hash);
-    if (!valid) {
-      throw new ApiError(401, "Invalid password", errorCodes.UNAUTHORIZED);
-    }
-  }
-
-  // 3. Generate OTP
-  const otpCode = generateOtp(OTP_LENGTH); // or use Math.random equivalent
-  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
-
-  // 4. Delete old OTPs and save new one
-  await pool.query("DELETE FROM otp_codes WHERE phone = $1 AND used = FALSE", [phone]);
-  await pool.query(
-    "INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)",
-    [phone, otpCode, expiresAt]
-  );
-
-  // 5. (Optional) Send OTP via SMS - we'll leave this commented until AT is fully ready
-  // ...
-
-  res.status(200).json({
-    success: true,
-    message: "OTP sent successfully",
-  });
 
 // ── Verify OTP ──
 const verifyOtp = asyncHandler(async (req, res) => {
@@ -144,9 +114,6 @@ const verifyOtp = asyncHandler(async (req, res) => {
   const motherCheck = await pool.query("SELECT * FROM mothers WHERE phone = $1", [phone]);
   const isNewUser = motherCheck.rows.length === 0;
 
-  // Generate JWT token (if you use JWT)
-  // const token = jwt.sign({ phone, isNewUser }, process.env.JWT_SECRET, { expiresIn: '30d' });
-
   res.status(200).json({
     success: true,
     data: {
@@ -154,7 +121,6 @@ const verifyOtp = asyncHandler(async (req, res) => {
       phone,
       verified: true,
       isNewUser,
-      // token, // uncomment if using JWT
     },
   });
 });
