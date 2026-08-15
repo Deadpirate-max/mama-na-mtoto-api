@@ -40,7 +40,7 @@ app.use('/admin', adminRoutes);
 //   },
 //  },
 //});
-app.use(globalLimiter);
+//app.use(globalLimiter);
 
 // ✅ Health check
 app.get("/health", (_req, res) => {
