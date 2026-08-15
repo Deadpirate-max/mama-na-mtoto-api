@@ -3,11 +3,12 @@ const router = express.Router();
 const pool = require('../db/pool');
 
 // Helper: generate 8-character alphanumeric code (e.g., MNM-K7X2)
+// Helper: generate 8-character alphanumeric code (e.g., 5UDNX92P)
+// Helper: generate 8-character alphanumeric code (e.g., 5UDNX92P)
 function generateCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
   for (let i = 0; i < 8; i++) {
-    if (i === 4) code += '-';
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
