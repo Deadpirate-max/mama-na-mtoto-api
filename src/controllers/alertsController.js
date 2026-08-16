@@ -19,7 +19,7 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       `SELECT m.name, m.nurse_name, m.nurse_phone,
        COALESCE(m.partner_name, '') as partner_name,
        COALESCE(m.partner_phone, '') as partner_phone,
-       m.facility_name
+       COALESCE(m.facility_name, '') as facility_name
         FROM mothers m
         WHERE m.phone = $1`,
       [phone],
