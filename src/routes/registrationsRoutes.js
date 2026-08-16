@@ -15,12 +15,26 @@ function generateCode() {
 // GET /api/registrations/:code
 router.get('/:code', async (req, res) => {
   const { code } = req.params;
+  
+  // 👇 UPDATED: JOIN with nurses table to get the name and phone!
   const result = await pool.query(
-    `SELECT * FROM registration_codes
-     WHERE code = $1 AND expires_at > NOW()
-     AND (used = FALSE OR used IS NULL)`,
+    `SELECT 
+       rc.code,
+       rc.mother_phone,
+       rc.mother_name,
+       rc.weeks_pregnant,
+       rc.facility_name,
+       rc.facility_code,
+       rc.expires_at,
+       n.name as nurse_name,
+       n.phone as nurse_phone
+     FROM registration_codes rc
+     LEFT JOIN nurses n ON rc.nurse_id = n.id
+     WHERE rc.code = $1 AND rc.expires_at > NOW()
+     AND (rc.used = FALSE OR rc.used IS NULL)`,
     [code]
   );
+
   if (result.rows.length === 0) {
     return res.status(404).json({
       success: false,
