@@ -3,7 +3,7 @@ const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 
 // Africa's Talking SMS utility
-const AfricasTalking = require('africastalking');
+const AfricasTalking = require("africastalking");
 const AT = AfricasTalking({
   apiKey: process.env.AT_API_KEY,
   username: process.env.AT_USERNAME,
@@ -17,11 +17,12 @@ const createDangerAlert = asyncHandler(async (req, res) => {
     // 1. Get mother profile including nurse and partner details
     const { rows } = await pool.query(
       `SELECT m.name, m.nurse_name, m.nurse_phone,
-              m.partner_name, m.partner_phone,
-              m.facility_name
-       FROM mothers m
-       WHERE m.phone = $1`,
-      [phone]
+       COALESCE(m.partner_name, '') as partner_name,
+       COALESCE(m.partner_phone, '') as partner_phone,
+       m.facility_name
+        FROM mothers m
+        WHERE m.phone = $1`,
+      [phone],
     );
 
     const mother = rows[0];
@@ -31,17 +32,26 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       // Mother not in DB yet — log locally
       return res.json({
         success: true,
-        warning: 'Mother profile not found in database — alert logged locally only',
+        warning:
+          "Mother profile not found in database — alert logged locally only",
         sms_sent: false,
       });
     }
 
     // ── FIX B: Build recipients list (only valid phone numbers) ──
     const recipients = [];
-    if (mother.nurse_phone && mother.nurse_phone !== 'N/A' && mother.nurse_phone.length > 8) {
+    if (
+      mother.nurse_phone &&
+      mother.nurse_phone !== "N/A" &&
+      mother.nurse_phone.length > 8
+    ) {
       recipients.push(mother.nurse_phone);
     }
-    if (mother.partner_phone && mother.partner_phone !== 'N/A' && mother.partner_phone.length > 8) {
+    if (
+      mother.partner_phone &&
+      mother.partner_phone !== "N/A" &&
+      mother.partner_phone.length > 8
+    ) {
       recipients.push(mother.partner_phone);
     }
 
@@ -65,7 +75,7 @@ const createDangerAlert = asyncHandler(async (req, res) => {
         smsSent = true;
       } catch (smsError) {
         // ── FIX C: Don't crash if SMS fails — still save the alert ──
-        console.error('SMS send failed:', smsError.message);
+        console.error("SMS send failed:", smsError.message);
       }
     }
 
@@ -76,12 +86,15 @@ const createDangerAlert = asyncHandler(async (req, res) => {
         nurse_phone, partner_phone, sms_sent, status, fired_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
       [
-        phone, message, severity, alert_type,
+        phone,
+        message,
+        severity,
+        alert_type,
         mother.nurse_phone || null,
         mother.partner_phone || null,
         smsSent,
-        smsSent ? 'sent' : 'logged_no_sms'
-      ]
+        smsSent ? "sent" : "logged_no_sms",
+      ],
     );
 
     // 4. Return success to the client
@@ -89,13 +102,13 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       success: true,
       sms_sent: smsSent,
       recipients_notified: recipients.length,
-      warning: recipients.length === 0
-        ? 'No nurse or partner phone on file — alert saved locally'
-        : null,
+      warning:
+        recipients.length === 0
+          ? "No nurse or partner phone on file — alert saved locally"
+          : null,
     });
-
   } catch (error) {
-    console.error('Alert error:', error);
+    console.error("Alert error:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
