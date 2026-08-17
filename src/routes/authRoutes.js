@@ -44,5 +44,7 @@ router.post("/set-pin", setPin);
 router.post("/verify-pin", verifyPin);
 router.post("/recover", recoverAccount);
 router.post("/recover/confirm", confirmRecovery);
+router.post("/set-pin", authController.setPin); // <-- Add this
+router.post("/verify-pin", authController.verifyPin);
 
 module.exports = router;
