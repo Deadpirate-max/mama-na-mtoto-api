@@ -174,8 +174,6 @@ const verifyOtp = asyncHandler(async (req, res) => {
   });
 });
 
-const bcrypt = require("bcryptjs");
-
 // ── Set PIN (During Onboarding) ──
 const setPin = asyncHandler(async (req, res) => {
   const { phone, pin } = req.body;
@@ -299,13 +297,11 @@ const confirmRecovery = asyncHandler(async (req, res) => {
     [oldPhone, newPhone],
   );
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      message:
-        "Phone number recovered successfully. Please sign in with your new number.",
-    });
+  res.status(200).json({
+    success: true,
+    message:
+      "Phone number recovered successfully. Please sign in with your new number.",
+  });
 });
 
 module.exports = {
