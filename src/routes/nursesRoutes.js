@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { validate } = require('../middleware/validate');
-const { generateCode } = require('../utils/codeGenerator'); // You can reuse your existing code generator
+const { generateCode } = require('../utils/codeGenerator'); 
 
 router.post('/:nurseId/generate-code', async (req, res) => {
   const { nurseId } = req.params;

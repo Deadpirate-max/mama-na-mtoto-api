@@ -1,6 +1,12 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const { requestOtp, verifyOtp } = require("../controllers/authController");
+const {
+  setPin,
+  verifyPin,
+  recoverAccount,
+  confirmRecovery,
+} = require("../controllers/authController");
 
 const router = express.Router();
 
@@ -34,5 +40,9 @@ const otpVerifyLimiter = rateLimit({
 
 router.post("/otp/request", otpRequestLimiter, requestOtp);
 router.post("/otp/verify", otpVerifyLimiter, verifyOtp);
+router.post("/set-pin", setPin);
+router.post("/verify-pin", verifyPin);
+router.post("/recover", recoverAccount);
+router.post("/recover/confirm", confirmRecovery);
 
 module.exports = router;

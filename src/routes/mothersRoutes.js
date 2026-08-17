@@ -23,7 +23,7 @@ const motherSchema = {
   weeks_pregnant: { type: 'number' },
   county: { type: 'string' },
   id_number: { type: 'string' },
-  password: { required: true, type: 'string', min: 6 }, // Add this
+  password: { required: true, type: 'string', min: 6 }, 
 };
 
 const createMotherSchema = {
