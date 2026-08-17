@@ -4,24 +4,44 @@ const { asyncHandler } = require("../utils/asyncHandler");
 
 const createMother = asyncHandler(async (req, res) => {
   const {
-    phone, name, age, lmp_date, edd, gravida, para,
-    blood_group, address, emergency_contact,
+    phone,
+    name,
+    age,
+    lmp_date,
+    edd,
+    gravida,
+    para,
+    blood_group,
+    address,
+    emergency_contact,
   } = req.body;
 
   const { rows } = await pool.query(
     `INSERT INTO mothers (phone, name, age, lmp_date, edd, gravida, para, blood_group, address, emergency_contact)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
-    [phone, name, age, lmp_date, edd, gravida, para, blood_group, address, emergency_contact],
+    [
+      phone,
+      name,
+      age,
+      lmp_date,
+      edd,
+      gravida,
+      para,
+      blood_group,
+      address,
+      emergency_contact,
+    ],
   );
 
   res.status(201).json({ success: true, data: rows[0] });
 });
 
-const bcrypt = require('bcryptjs');
+const bcrypt = require("bcryptjs");
 
 exports.createMother = async (req, res) => {
-  const { name, phone, age, weeks_pregnant, county, id_number, password } = req.body;
+  const { name, phone, age, weeks_pregnant, county, id_number, password } =
+    req.body;
 
   // Hash password
   const salt = await bcrypt.genSalt(10);
@@ -31,32 +51,81 @@ exports.createMother = async (req, res) => {
     `INSERT INTO mothers (name, phone, age, weeks_pregnant, county, id_number, password_hash)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id`,
-    [name, phone, age, weeks_pregnant, county, id_number, password_hash]
+    [name, phone, age, weeks_pregnant, county, id_number, password_hash],
   );
 
   res.status(201).json({ success: true, data: { id: result.rows[0].id } });
 };
 
+exports.updateMother = async (req, res) => {
+  const { phone } = req.params;
+  const updates = req.body;
+  const keys = Object.keys(updates);
+  const values = Object.values(updates);
+
+  if (keys.length === 0) {
+    return res
+      .status(400)
+      .json({ success: false, error: "No fields to update" });
+  }
+
+  const setClause = keys.map((key, i) => `"${key}" = $${i + 1}`).join(", ");
+
+  try {
+    const query = `UPDATE mothers SET ${setClause}, updated_at = NOW() WHERE phone = $${keys.length + 1} RETURNING *`;
+    const result = await pool.query(query, [...values, phone]);
+
+    if (result.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Mother not found" });
+    }
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error("Error updating mother:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 const getMotherByPhone = asyncHandler(async (req, res) => {
   const { phone } = req.params;
 
-  const { rows } = await pool.query(
-    `SELECT * FROM mothers WHERE phone = $1`,
-    [phone],
-  );
+  const { rows } = await pool.query(`SELECT * FROM mothers WHERE phone = $1`, [
+    phone,
+  ]);
 
   if (rows.length === 0) {
-    throw new ApiError(404, `No mother found with phone ${phone}`, errorCodes.NOT_FOUND);
+    throw new ApiError(
+      404,
+      `No mother found with phone ${phone}`,
+      errorCodes.NOT_FOUND,
+    );
   }
 
   const mother = rows[0];
 
   const [visits, labs, vax, symptoms, alerts] = await Promise.all([
-    pool.query(`SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number`, [mother.id]),
-    pool.query(`SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC`, [mother.id]),
-    pool.query(`SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date`, [mother.id]),
-    pool.query(`SELECT * FROM symptom_logs WHERE mother_id = $1 ORDER BY log_date DESC`, [mother.id]),
-    pool.query(`SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC`, [mother.id]),
+    pool.query(
+      `SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number`,
+      [mother.id],
+    ),
+    pool.query(
+      `SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC`,
+      [mother.id],
+    ),
+    pool.query(
+      `SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date`,
+      [mother.id],
+    ),
+    pool.query(
+      `SELECT * FROM symptom_logs WHERE mother_id = $1 ORDER BY log_date DESC`,
+      [mother.id],
+    ),
+    pool.query(
+      `SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC`,
+      [mother.id],
+    ),
   ]);
 
   res.status(200).json({
@@ -75,8 +144,15 @@ const getMotherByPhone = asyncHandler(async (req, res) => {
 const updateMother = asyncHandler(async (req, res) => {
   const { phone } = req.params;
   const allowedFields = [
-    "name", "age", "lmp_date", "edd", "gravida", "para",
-    "blood_group", "address", "emergency_contact",
+    "name",
+    "age",
+    "lmp_date",
+    "edd",
+    "gravida",
+    "para",
+    "blood_group",
+    "address",
+    "emergency_contact",
   ];
 
   const updates = {};
@@ -87,7 +163,11 @@ const updateMother = asyncHandler(async (req, res) => {
   }
 
   if (Object.keys(updates).length === 0) {
-    throw new ApiError(400, "No valid fields to update", errorCodes.BAD_REQUEST);
+    throw new ApiError(
+      400,
+      "No valid fields to update",
+      errorCodes.BAD_REQUEST,
+    );
   }
 
   const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`);
@@ -99,7 +179,11 @@ const updateMother = asyncHandler(async (req, res) => {
   );
 
   if (rows.length === 0) {
-    throw new ApiError(404, `No mother found with phone ${phone}`, errorCodes.NOT_FOUND);
+    throw new ApiError(
+      404,
+      `No mother found with phone ${phone}`,
+      errorCodes.NOT_FOUND,
+    );
   }
 
   res.status(200).json({ success: true, data: rows[0] });
@@ -107,23 +191,31 @@ const updateMother = asyncHandler(async (req, res) => {
 
 module.exports = { createMother, getMotherByPhone, updateMother };
 
-const supabase = require('../db/supabase');
+const supabase = require("../db/supabase");
 
 exports.uploadProfilePhoto = async (req, res) => {
   const { phone, base64Image } = req.body; // Frontend sends the base64 string
-  const buffer = Buffer.from(base64Image.replace(/^data:image\/\w+;base64,/, ""), 'base64');
+  const buffer = Buffer.from(
+    base64Image.replace(/^data:image\/\w+;base64,/, ""),
+    "base64",
+  );
   const filename = `avatars/${phone}.jpg`;
 
   const { data, error } = await supabase.storage
-    .from('profiles')
-    .upload(filename, buffer, { contentType: 'image/jpeg', upsert: true });
+    .from("profiles")
+    .upload(filename, buffer, { contentType: "image/jpeg", upsert: true });
 
   if (error) return res.status(500).json({ error: error.message });
 
-  const { data: urlData } = supabase.storage.from('profiles').getPublicUrl(filename);
+  const { data: urlData } = supabase.storage
+    .from("profiles")
+    .getPublicUrl(filename);
 
   // Save the public URL to your PostgreSQL database
-  await pool.query('UPDATE mothers SET profile_photo_url = $1 WHERE phone = $2', [urlData.publicUrl, phone]);
+  await pool.query(
+    "UPDATE mothers SET profile_photo_url = $1 WHERE phone = $2",
+    [urlData.publicUrl, phone],
+  );
 
   res.json({ success: true, profilePhotoUrl: urlData.publicUrl });
 };
