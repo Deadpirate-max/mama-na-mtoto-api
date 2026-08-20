@@ -1,14 +1,33 @@
 const pool = require("../db/pool");
+const bcrypt = require("bcryptjs");
+const supabase = require("../db/supabase");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 
-const createMother = asyncHandler(async (req, res) => {
+// ── Create Mother (Onboarding) ────────────────────────────────────────────────
+// Merged: Accepts both clinical fields and onboarding fields
+exports.createMother = asyncHandler(async (req, res) => {
   const {
-    phone,
     name,
+    phone,
     age,
-    lmp_date,
+    weeks_pregnant, // From frontend Onboarding
+    weeksPregnantAtRegistration, // From backend POST /mothers fallback
+    county,
+    id_number,
+    nurse_name,
+    nurse_phone,
+    facility_name,
+    facility_code,
+    partner_name,
+    partner_age,
+    partner_phone,
+    profile_photo,
+    conditions,
+    registration_date,
     edd,
+    // Clinical fields
+    lmp_date,
     gravida,
     para,
     blood_group,
@@ -16,64 +35,117 @@ const createMother = asyncHandler(async (req, res) => {
     emergency_contact,
   } = req.body;
 
-  const { rows } = await pool.query(
-    `INSERT INTO mothers (phone, name, age, lmp_date, edd, gravida, para, blood_group, address, emergency_contact)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     RETURNING *`,
+  // Determine weeks_pregnant correctly
+  const weeks = weeks_pregnant || weeksPregnantAtRegistration || 0;
+
+  const result = await pool.query(
+    `INSERT INTO mothers (
+      name, phone, age, weeks_pregnant_at_registration, county, id_number,
+      nurse_name, nurse_phone, facility_name, facility_code,
+      partner_name, partner_age, partner_phone,
+      profile_photo_url, conditions, registration_date, edd,
+      lmp_date, gravida, para, blood_group, address, emergency_contact
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+    RETURNING id`,
     [
-      phone,
       name,
+      phone,
       age,
-      lmp_date,
-      edd,
-      gravida,
-      para,
-      blood_group,
-      address,
-      emergency_contact,
+      weeks,
+      county,
+      id_number,
+      nurse_name,
+      nurse_phone,
+      facility_name,
+      facility_code,
+      partner_name,
+      partner_age,
+      partner_phone,
+      profile_photo || null,
+      conditions || [],
+      registration_date || new Date().toISOString(),
+      edd || null,
+      lmp_date || null,
+      gravida || "G0P0",
+      para || "P0",
+      blood_group || null,
+      address || null,
+      emergency_contact || null,
     ],
   );
 
-  res.status(201).json({ success: true, data: rows[0] });
+  res.status(201).json({ success: true, data: { id: result.rows[0].id } });
 });
 
-const bcrypt = require("bcryptjs");
-
-exports.createMother = async (req, res) => {
-  const { name, phone, age, weeks_pregnant, county, id_number, password } =
-    req.body;
-
-  // Hash password
-  const salt = await bcrypt.genSalt(10);
-  const password_hash = await bcrypt.hash(password, salt);
-
-  const result = await pool.query(
-    `INSERT INTO mothers (name, phone, age, weeks_pregnant, county, id_number, password_hash)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id`,
-    [name, phone, age, weeks_pregnant, county, id_number, password_hash],
-  );
-
-  res.status(201).json({ success: true, data: { id: result.rows[0].id } });
-};
-
+// ── Update Mother (Profile Sync) ──────────────────────────────────────────────
+// FIX: Explicit type casting to avoid PostgreSQL "22P02" error
 exports.updateMother = async (req, res) => {
   const { phone } = req.params;
   const updates = req.body;
-  const keys = Object.keys(updates);
-  const values = Object.values(updates);
 
+  // List of fields the frontend sends (matching the data types in your DB)
+  const allowedFields = [
+    "name",
+    "age",
+    "id_number",
+    "county",
+    "profile_photo_url",
+    "weeks_pregnant_at_registration",
+    "registration_date",
+    "edd",
+    "gravida",
+    "para",
+    "conditions",
+    "nurse_name",
+    "nurse_phone",
+    "facility_name",
+    "facility_code",
+    "partner_name",
+    "partner_age",
+    "partner_phone",
+    "pin_hash",
+    "pin_set",
+    "password_hash",
+  ];
+
+  const filteredUpdates = {};
+  for (const key of allowedFields) {
+    if (updates.hasOwnProperty(key)) {
+      filteredUpdates[key] = updates[key];
+    }
+  }
+
+  const keys = Object.keys(filteredUpdates);
   if (keys.length === 0) {
     return res
       .status(400)
-      .json({ success: false, error: "No fields to update" });
+      .json({ success: false, error: "No valid fields to update" });
   }
 
-  const setClause = keys.map((key, i) => `"${key}" = $${i + 1}`).join(", ");
+  // Build SET clause with explicit type casting to avoid 22P02
+  const setClause = keys
+    .map((key, i) => {
+      if (
+        ["age", "weeks_pregnant_at_registration", "partner_age"].includes(key)
+      ) {
+        return `"${key}" = $${i + 1}::int`; // Force integer type
+      }
+      if (key === "pin_set") {
+        return `"${key}" = $${i + 1}::boolean`; // Force boolean type
+      }
+      if (["conditions"].includes(key)) {
+        return `"${key}" = $${i + 1}::jsonb`; // Force JSONB for arrays
+      }
+      return `"${key}" = $${i + 1}`;
+    })
+    .join(", ");
+
+  const values = keys.map((key) => filteredUpdates[key]);
+  values.push(phone);
 
   try {
     const query = `UPDATE mothers SET ${setClause}, updated_at = NOW() WHERE phone = $${keys.length + 1} RETURNING *`;
-    const result = await pool.query(query, [...values, phone]);
+    const result = await pool.query(query, values);
 
     if (result.rows.length === 0) {
       return res
@@ -88,6 +160,7 @@ exports.updateMother = async (req, res) => {
   }
 };
 
+// ── Get Mother by Phone ────────────────────────────────────────────────────────
 const getMotherByPhone = asyncHandler(async (req, res) => {
   const { phone } = req.params;
 
@@ -105,6 +178,7 @@ const getMotherByPhone = asyncHandler(async (req, res) => {
 
   const mother = rows[0];
 
+  // Fetch associated clinical data
   const [visits, labs, vax, symptoms, alerts] = await Promise.all([
     pool.query(
       `SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number`,
@@ -141,60 +215,9 @@ const getMotherByPhone = asyncHandler(async (req, res) => {
   });
 });
 
-const updateMother = asyncHandler(async (req, res) => {
-  const { phone } = req.params;
-  const allowedFields = [
-    "name",
-    "age",
-    "lmp_date",
-    "edd",
-    "gravida",
-    "para",
-    "blood_group",
-    "address",
-    "emergency_contact",
-  ];
-
-  const updates = {};
-  for (const field of allowedFields) {
-    if (req.body[field] !== undefined) {
-      updates[field] = req.body[field];
-    }
-  }
-
-  if (Object.keys(updates).length === 0) {
-    throw new ApiError(
-      400,
-      "No valid fields to update",
-      errorCodes.BAD_REQUEST,
-    );
-  }
-
-  const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`);
-  const values = [phone, ...Object.values(updates)];
-
-  const { rows } = await pool.query(
-    `UPDATE mothers SET ${setClauses.join(", ")} WHERE phone = $1 RETURNING *`,
-    values,
-  );
-
-  if (rows.length === 0) {
-    throw new ApiError(
-      404,
-      `No mother found with phone ${phone}`,
-      errorCodes.NOT_FOUND,
-    );
-  }
-
-  res.status(200).json({ success: true, data: rows[0] });
-});
-
-module.exports = { createMother, getMotherByPhone, updateMother };
-
-const supabase = require("../db/supabase");
-
+// ── Upload Profile Photo (Supabase) ────────────────────────────────────────────
 exports.uploadProfilePhoto = async (req, res) => {
-  const { phone, base64Image } = req.body; // Frontend sends the base64 string
+  const { phone, base64Image } = req.body;
   const buffer = Buffer.from(
     base64Image.replace(/^data:image\/\w+;base64,/, ""),
     "base64",
@@ -211,11 +234,19 @@ exports.uploadProfilePhoto = async (req, res) => {
     .from("profiles")
     .getPublicUrl(filename);
 
-  // Save the public URL to your PostgreSQL database
+  // Save the public URL to PostgreSQL
   await pool.query(
     "UPDATE mothers SET profile_photo_url = $1 WHERE phone = $2",
     [urlData.publicUrl, phone],
   );
 
   res.json({ success: true, profilePhotoUrl: urlData.publicUrl });
+};
+
+// ── Export Controllers ─────────────────────────────────────────────────────────
+module.exports = {
+  createMother: exports.createMother,
+  updateMother: exports.updateMother,
+  getMotherByPhone,
+  uploadProfilePhoto: exports.uploadProfilePhoto,
 };
