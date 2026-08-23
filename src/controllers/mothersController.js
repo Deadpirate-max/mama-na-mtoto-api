@@ -169,7 +169,12 @@ exports.updateMother = async (req, res) => {
   const filteredUpdates = {};
   for (const key of allowedFields) {
     if (Object.prototype.hasOwnProperty.call(updates, key)) {
-      filteredUpdates[key] = updates[key];
+      // 🛡️ If the value is an array (like conditions), stringify it!
+      if (Array.isArray(updates[key])) {
+        filteredUpdates[key] = JSON.stringify(updates[key]);
+      } else {
+        filteredUpdates[key] = updates[key];
+      }
     }
   }
 
@@ -193,7 +198,6 @@ exports.updateMother = async (req, res) => {
       if (key === "conditions") {
         return `"${key}" = $${i + 1}::jsonb`;
       }
-      // FIX 1: gravida and para must NOT be cast to int
       return `"${key}" = $${i + 1}`;
     })
     .join(", ");
