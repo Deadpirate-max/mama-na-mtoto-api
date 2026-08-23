@@ -4,52 +4,67 @@ const {
   createMother,
   getMotherByPhone,
   updateMother,
+  uploadProfilePhoto,
 } = require("../controllers/mothersController");
 const { updateVisit } = require("../controllers/visitsController");
 const { updateLabResult } = require("../controllers/labsController");
 const { updateVaccination } = require("../controllers/vaccinationsController");
-const mothersController = require("../controllers/mothersController");
 
 const router = express.Router();
-exports.uploadProfilePhoto = async (req, res) => {
-  // Placeholder – implement later with Supabase Storage
-  res
-    .status(200)
-    .json({ success: true, message: "Photo upload endpoint (coming soon)" });
-};
 
-const motherSchema = {
-  name: { required: true, type: "string" },
-  phone: { required: true, type: "string", pattern: /^\+?[1-9]\d{7,14}$/ },
-  age: { type: "number" },
-  weeks_pregnant: { type: "number" },
-  county: { type: "string" },
-  id_number: { type: "string" },
-  password: { required: true, type: "string", min: 6 },
-};
-
+// ── Validation schema for POST /mothers ───────────────────────────────────────
+// FIX 1: Removed password — OTP + PIN only, no passwords
+// FIX 2: gravida and para changed from number to string (they hold "G1P0", "P0")
+// FIX 3: Added all fields the app sends so validation does not block them
 const createMotherSchema = {
+  // Required
   phone: { required: true, type: "string", pattern: /^\+?[1-9]\d{7,14}$/ },
   name: { required: true, type: "string" },
+
+  // Personal — all optional
   age: { type: "number", min: 10, max: 60 },
-  gravida: { type: "number", min: 0, max: 20 },
-  para: { type: "number", min: 0, max: 20 },
+  id_number: { type: "string" },
+  county: { type: "string" },
+
+  // Pregnancy — optional
+  weeks_pregnant: { type: "number", min: 0, max: 42 },
+  weeksPregnantAtRegistration: { type: "number", min: 0, max: 42 },
+  registration_date: { type: "string" },
+  edd: { type: "string" },
+  lmp_date: { type: "string" },
+
+  // FIX 2: These are strings like "G1P0" and "P0" — NOT numbers
+  gravida: { type: "string" },
+  para: { type: "string" },
+
+  // Care team — optional
+  nurse_name: { type: "string" },
+  nurse_phone: { type: "string" },
+  facility_name: { type: "string" },
+  facility_code: { type: "string" },
+
+  // Partner — optional
+  partner_name: { type: "string" },
+  partner_age: { type: "number" },
+  partner_phone: { type: "string" },
+
+  // Other — optional
+  conditions: { type: "string" }, // JSON stringified array e.g. '["Diabetes"]'
+  profile_photo: { type: "string" },
+  blood_group: { type: "string" },
+  address: { type: "string" },
+  emergency_contact: { type: "string" },
 };
 
+// ── Routes ────────────────────────────────────────────────────────────────────
 router.post("/", validate(createMotherSchema), createMother);
-
 router.get("/:phone", getMotherByPhone);
-
 router.put("/:phone", updateMother);
-
 router.patch("/:phone/visits/:number", updateVisit);
-
 router.patch("/:phone/labs/:id", updateLabResult);
-
 router.patch("/:phone/vaccinations/:id", updateVaccination);
+router.post("/upload-photo", uploadProfilePhoto);
 
-router.put("/:phone", mothersController.updateMother);
-
-//router.post('/upload-photo', mothersController.uploadProfilePhoto);
+// FIX 4: Removed duplicate router.put("/:phone") that was registering updateMother twice
 
 module.exports = router;
