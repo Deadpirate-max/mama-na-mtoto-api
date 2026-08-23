@@ -228,6 +228,7 @@ exports.updateMother = async (req, res) => {
 };
 
 // ── Get Mother by Phone ────────────────────────────────────────────────────────
+// ── Get Mother by Phone ────────────────────────────────────────────────────────
 exports.getMotherByPhone = asyncHandler(async (req, res) => {
   const normalizedPhone = normalizePhone(req.params.phone);
 
@@ -248,36 +249,68 @@ exports.getMotherByPhone = asyncHandler(async (req, res) => {
   // Fetch clinical data in parallel
   const [visits, labs, vax, symptoms, alerts] = await Promise.all([
     pool.query(
-      "SELECT * FROM anc_visits    WHERE mother_id = $1 ORDER BY visit_number",
+      "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
       [mother.id],
     ),
     pool.query(
-      "SELECT * FROM lab_results   WHERE mother_id = $1 ORDER BY test_date DESC",
+      "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC",
       [mother.id],
     ),
     pool.query(
-      "SELECT * FROM vaccinations  WHERE mother_id = $1 ORDER BY administration_date",
+      "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date",
       [mother.id],
     ),
     pool.query(
-      "SELECT * FROM symptom_logs  WHERE mother_id = $1 ORDER BY log_date DESC",
+      "SELECT * FROM symptom_logs WHERE mother_id = $1 ORDER BY log_date DESC",
       [mother.id],
     ),
     pool.query(
-      "SELECT * FROM alerts        WHERE mother_id = $1 ORDER BY created_at DESC",
+      "SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC",
       [mother.id],
     ),
   ]);
 
+  // 🚨 FIX: Map snake_case DB columns to camelCase for React Native
   res.status(200).json({
     success: true,
     data: {
-      ...mother,
-      anc_visits: visits.rows,
-      lab_results: labs.rows,
+      // Identity
+      name: mother.name,
+      age: mother.age,
+      idNumber: mother.id_number,
+      phone: mother.phone,
+      county: mother.county,
+      profilePhoto: mother.profile_photo_url || null,
+
+      // Pregnancy
+      weeksPregnantAtRegistration: mother.weeks_pregnant_at_registration,
+      registrationDate: mother.registration_date,
+      edd: mother.edd,
+      gravida: mother.gravida,
+      para: mother.para,
+      conditions: Array.isArray(mother.conditions) ? mother.conditions : [],
+
+      // Care Team
+      nurseName: mother.nurse_name,
+      nursePhone: mother.nurse_phone,
+      facilityName: mother.facility_name,
+      facilityCode: mother.facility_code,
+
+      // Partner
+      partnerName: mother.partner_name,
+      partnerAge: mother.partner_age,
+      partnerPhone: mother.partner_phone,
+
+      // Clinical (Mapped and separated)
+      ancVisits: visits.rows,
+      labResults: labs.rows,
       vaccinations: vax.rows,
-      symptom_logs: symptoms.rows,
+      symptomLogs: symptoms.rows,
       alerts: alerts.rows,
+
+      // Meta
+      createdAt: mother.created_at,
+      lastSyncedAt: mother.updated_at,
     },
   });
 });
