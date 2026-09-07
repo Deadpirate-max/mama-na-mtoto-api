@@ -395,4 +395,5 @@ module.exports = {
   updateMother: exports.updateMother,
   getMotherByPhone: exports.getMotherByPhone,
   uploadProfilePhoto: exports.uploadProfilePhoto,
+  getAllMothers: exports.getAllMothers, // <-- Make sure this is here!
 };
