@@ -16,8 +16,15 @@ const normalizePhone = (phone) => {
 };
 
 // ── Create Mother (Onboarding) ────────────────────────────────────────────────
+// ── Create Mother (Onboarding) ────────────────────────────────────────────────
 exports.createMother = asyncHandler(async (req, res) => {
   const {
+    // New dashboard fields
+    nationalId, // Dashboard sends this instead of id_number
+    village, // Dashboard sends this instead of address
+    parity, // Dashboard sends this instead of para
+
+    // Existing backend fields
     name,
     phone,
     age,
@@ -37,7 +44,6 @@ exports.createMother = asyncHandler(async (req, res) => {
     registration_date,
     edd,
     lmp_date,
-    // FIX 1: gravida and para are TEXT in DB — never treat as integer
     gravida,
     para,
     blood_group,
@@ -45,17 +51,23 @@ exports.createMother = asyncHandler(async (req, res) => {
     emergency_contact,
   } = req.body;
 
+  // 🛠️ FIX: Map the Dashboard fields to Backend fields
+  const mappedIdNumber = id_number || nationalId || "";
+  const mappedAddress = address || village || "";
+  const mappedPara = para || parity || "P0";
+  const mappedLmp = lmp_date || req.body.lmp || null; // Handle 'lmp' if sent
+
+  // 🛠️ FIX: Default missing critical fields to avoid validation errors
+  const mappedName = name || "Unknown Mother";
+  const mappedCounty = county || "N/A";
+
   const normalizedPhone = normalizePhone(phone);
 
-  // Determine weeks pregnant from either field name
   const weeks =
     parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
-
-  // FIX 1: Ensure gravida and para are always strings
   const gravidaStr = (gravida || "G1P0").toString().trim();
-  const paraStr = (para || "P0").toString().trim();
+  const paraStr = (mappedPara || "P0").toString().trim();
 
-  // FIX 2: Handle conditions as JSON array
   let conditionsJson = "[]";
   if (Array.isArray(conditions)) {
     conditionsJson = JSON.stringify(conditions);
@@ -63,7 +75,6 @@ exports.createMother = asyncHandler(async (req, res) => {
     conditionsJson = conditions;
   }
 
-  // FIX 3: ON CONFLICT — if same phone registers again, update instead of crash
   const result = await pool.query(
     `INSERT INTO mothers (
       name, phone, age, weeks_pregnant_at_registration, county, id_number,
@@ -100,12 +111,12 @@ exports.createMother = asyncHandler(async (req, res) => {
       updated_at                    = NOW()
     RETURNING id, phone`,
     [
-      name || "",
+      mappedName,
       normalizedPhone,
       age ? parseInt(age) : null,
       weeks ? parseInt(weeks) : null,
-      county || "",
-      id_number || "",
+      mappedCounty,
+      mappedIdNumber,
       nurse_name || "",
       nurse_phone || "",
       facility_name || "",
@@ -117,11 +128,11 @@ exports.createMother = asyncHandler(async (req, res) => {
       conditionsJson,
       registration_date || new Date().toISOString(),
       edd || null,
-      lmp_date || null,
-      gravidaStr, // TEXT — never integer
-      paraStr, // TEXT — never integer
+      mappedLmp,
+      gravidaStr,
+      paraStr,
       blood_group || null,
-      address || null,
+      mappedAddress,
       emergency_contact || null,
     ],
   );
