@@ -2,7 +2,6 @@ const pool = require("../db/pool");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 
-// Africa's Talking SMS utility
 const AfricasTalking = require("africastalking");
 const AT = AfricasTalking({
   apiKey: process.env.AT_API_KEY,
@@ -14,7 +13,6 @@ const createDangerAlert = asyncHandler(async (req, res) => {
   const { phone, message, severity, alert_type } = req.body;
 
   try {
-    // 1. Get mother profile including nurse and partner details
     const { rows } = await pool.query(
       `SELECT m.name, m.nurse_name, m.nurse_phone,
        COALESCE(m.partner_name, '') as partner_name,
@@ -27,7 +25,6 @@ const createDangerAlert = asyncHandler(async (req, res) => {
 
     const mother = rows[0];
 
-    // ── FIX A: Handle missing mother gracefully ──
     if (!mother) {
       return res.json({
         success: true,
@@ -37,7 +34,6 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       });
     }
 
-    // ── FIX B: Build recipients list (only valid phone numbers) ──
     const recipients = [];
     if (
       mother.nurse_phone &&
@@ -56,7 +52,6 @@ const createDangerAlert = asyncHandler(async (req, res) => {
 
     let smsSent = false;
 
-    // 2. Send SMS (only if we have valid recipients)
     if (recipients.length > 0) {
       const smsText =
         `MAMA NA MTOTO+ ALERT 🚨\n` +
@@ -77,7 +72,6 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       }
     }
 
-    // 3. Always save alert to database (regardless of SMS result)
     await pool.query(
       `INSERT INTO alerts
        (mother_phone, symptom, severity, alert_type,
@@ -95,7 +89,6 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       ],
     );
 
-    // 4. Return success to the client
     res.json({
       success: true,
       sms_sent: smsSent,
@@ -111,7 +104,8 @@ const createDangerAlert = asyncHandler(async (req, res) => {
   }
 });
 
-exports.getAllAlerts = async (req, res) => {
+// ✅ THIS IS A CONST, NOT exports.getAllAlerts
+const getAllAlerts = async (req, res) => {
   try {
     const result = await pool.query(
       "SELECT * FROM alerts ORDER BY created_at DESC",
@@ -123,5 +117,5 @@ exports.getAllAlerts = async (req, res) => {
   }
 };
 
-// ✅ THE FIX: Export BOTH functions properly
+// ✅ Properly export both constants
 module.exports = { createDangerAlert, getAllAlerts };
