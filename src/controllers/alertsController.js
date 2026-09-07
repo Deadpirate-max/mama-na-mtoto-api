@@ -29,7 +29,6 @@ const createDangerAlert = asyncHandler(async (req, res) => {
 
     // ── FIX A: Handle missing mother gracefully ──
     if (!mother) {
-      // Mother not in DB yet — log locally
       return res.json({
         success: true,
         warning:
@@ -74,7 +73,6 @@ const createDangerAlert = asyncHandler(async (req, res) => {
         });
         smsSent = true;
       } catch (smsError) {
-        // ── FIX C: Don't crash if SMS fails — still save the alert ──
         console.error("SMS send failed:", smsError.message);
       }
     }
@@ -125,4 +123,5 @@ exports.getAllAlerts = async (req, res) => {
   }
 };
 
-module.exports = { createDangerAlert };
+// ✅ THE FIX: Export BOTH functions properly
+module.exports = { createDangerAlert, getAllAlerts };

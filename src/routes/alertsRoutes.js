@@ -3,7 +3,7 @@ const { validate } = require("../middleware/validate");
 const {
   createDangerAlert,
   getAllAlerts,
-} = require("../controllers/alertsController"); // <-- Added getAllAlerts
+} = require("../controllers/alertsController");
 
 const router = express.Router();
 
@@ -17,7 +17,7 @@ const dangerAlertSchema = {
   },
 };
 
-router.get("/", getAllAlerts); // <-- This will now work
+router.get("/", getAllAlerts); // <-- This will now find the function!
 router.post("/danger", validate(dangerAlertSchema), createDangerAlert);
 
 module.exports = router;
