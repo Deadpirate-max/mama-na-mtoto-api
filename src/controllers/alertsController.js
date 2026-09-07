@@ -113,4 +113,16 @@ const createDangerAlert = asyncHandler(async (req, res) => {
   }
 });
 
+exports.getAllAlerts = async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM alerts ORDER BY created_at DESC",
+    );
+    res.status(200).json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error("Error fetching alerts:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 module.exports = { createDangerAlert };

@@ -364,6 +364,31 @@ exports.uploadProfilePhoto = async (req, res) => {
   }
 };
 
+exports.getAllMothers = asyncHandler(async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM mothers ORDER BY created_at DESC",
+    );
+    // Map to camelCase if needed (like you did in getMotherByPhone)
+    const mothers = result.rows.map((m) => ({
+      id: m.id,
+      name: m.name,
+      phone: m.phone,
+      age: m.age,
+      idNumber: m.id_number,
+      county: m.county,
+      weeksPregnantAtRegistration: m.weeks_pregnant_at_registration,
+      edd: m.edd,
+      nurseName: m.nurse_name,
+      facilityName: m.facility_name,
+    }));
+    res.status(200).json({ success: true, data: mothers });
+  } catch (error) {
+    console.error("Error fetching all mothers:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ── Export ─────────────────────────────────────────────────────────────────────
 module.exports = {
   createMother: exports.createMother,
