@@ -8,6 +8,7 @@ const nursesRoutes = require("./routes/nursesRoutes");
 const registrationsRoutes = require("./routes/registrationsRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
+const chvRoutes = require("./routes/chvRoutes");
 
 const app = express();
 
@@ -33,12 +34,10 @@ app.get("/", (_req, res) => {
 });
 
 app.get("/health", (_req, res) => {
-  res
-    .status(200)
-    .json({
-      success: true,
-      data: { status: "healthy", service: "Mama na Mtoto+ API" },
-    });
+  res.status(200).json({
+    success: true,
+    data: { status: "healthy", service: "Mama na Mtoto+ API" },
+  });
 });
 
 // ── API Routes (all under /api prefix) ───────────────────────────────────────
@@ -48,6 +47,7 @@ app.use("/api/alerts", alertsRoutes);
 app.use("/api/nurses", nursesRoutes);
 app.use("/api/registrations", registrationsRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/chv", chvRoutes);
 
 // ── Error handling (must be last) ─────────────────────────────────────────────
 app.use(notFound);

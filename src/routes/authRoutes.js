@@ -39,6 +39,21 @@ const otpVerifyLimiter = rateLimit({
   },
 });
 
+// GET /api/auth/me
+router.get("/me", async (req, res) => {
+  // For now, return a placeholder nurse (since JWT is not fully wired yet)
+  // Later, you can decode the token and fetch the nurse from the DB.
+  res.json({
+    success: true,
+    data: {
+      id: "chv_1",
+      name: "Grace Muthoni",
+      phone: "+254722987654",
+      facility: "Kiambu County Referral Hospital",
+      role: "nurse",
+    },
+  });
+});
 router.post("/otp/request", otpRequestLimiter, requestOtp);
 router.post("/otp/verify", otpVerifyLimiter, verifyOtp);
 router.post("/set-pin", setPin);
