@@ -389,6 +389,35 @@ exports.getAllMothers = asyncHandler(async (req, res) => {
   }
 });
 
+// ── Search Mothers (For CHV Dashboard) ─────────────────────────────────────
+exports.searchMothers = asyncHandler(async (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+
+    if (!q) {
+      // Empty query → return all mothers (recent first)
+      const result = await pool.query(
+        "SELECT * FROM mothers ORDER BY created_at DESC LIMIT 50",
+      );
+      return res.status(200).json({ success: true, data: result.rows });
+    }
+
+    // Search by name OR phone (case-insensitive)
+    const result = await pool.query(
+      `SELECT * FROM mothers 
+       WHERE name ILIKE $1 OR phone ILIKE $1 
+       ORDER BY created_at DESC 
+       LIMIT 50`,
+      [`%${q}%`],
+    );
+
+    res.status(200).json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error("searchMothers error:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ── Export ─────────────────────────────────────────────────────────────────────
 module.exports = {
   createMother: exports.createMother,
@@ -396,4 +425,5 @@ module.exports = {
   getMotherByPhone: exports.getMotherByPhone,
   uploadProfilePhoto: exports.uploadProfilePhoto,
   getAllMothers: exports.getAllMothers,
+  searchMothers: exports.searchMothers, // <-- ADD THIS
 };

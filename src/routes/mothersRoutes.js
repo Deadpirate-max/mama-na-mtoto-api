@@ -6,6 +6,7 @@ const {
   updateMother,
   uploadProfilePhoto,
   getAllMothers,
+  searchMothers,
 } = require("../controllers/mothersController");
 const { updateVisit } = require("../controllers/visitsController");
 const { updateLabResult } = require("../controllers/labsController");
@@ -57,7 +58,8 @@ const createMotherSchema = {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 router.post("/", validate(createMotherSchema), createMother);
-router.get("/", getAllMothers); 
+router.get("/", getAllMothers);
+router.get("/search", searchMothers);
 router.get("/:phone", getMotherByPhone);
 router.put("/:phone", updateMother);
 router.patch("/:phone/visits/:number", updateVisit);
