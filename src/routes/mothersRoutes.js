@@ -5,7 +5,7 @@ const {
   getMotherByPhone,
   updateMother,
   uploadProfilePhoto,
-  getAllMothers, // <-- Added
+  getAllMothers,
 } = require("../controllers/mothersController");
 const { updateVisit } = require("../controllers/visitsController");
 const { updateLabResult } = require("../controllers/labsController");
@@ -57,7 +57,7 @@ const createMotherSchema = {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 router.post("/", validate(createMotherSchema), createMother);
-router.get("/", getAllMothers); // <-- Must come BEFORE "/:phone" to avoid conflict
+router.get("/", getAllMothers); 
 router.get("/:phone", getMotherByPhone);
 router.put("/:phone", updateMother);
 router.patch("/:phone/visits/:number", updateVisit);

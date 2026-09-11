@@ -22,7 +22,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
-app.options("*", cors()); // <-- This ensures OPTIONS requests get CORS headers
+app.options("*", cors()); 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 

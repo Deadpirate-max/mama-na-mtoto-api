@@ -54,6 +54,7 @@ router.get("/me", async (req, res) => {
     },
   });
 });
+
 router.post("/otp/request", otpRequestLimiter, requestOtp);
 router.post("/otp/verify", otpVerifyLimiter, verifyOtp);
 router.post("/set-pin", setPin);
