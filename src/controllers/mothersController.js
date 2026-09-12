@@ -2,7 +2,7 @@ const pool = require("../db/pool");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 
-// ── Normalize Kenyan phone ─────────────────────────────────────────────────────
+// ── Normalize Kenyan phone ─────────────────────────────────────────────────
 const normalizePhone = (phone) => {
   if (!phone) return phone;
   let p = phone
@@ -15,19 +15,13 @@ const normalizePhone = (phone) => {
   return p;
 };
 
-// ── Create Mother (Onboarding) ────────────────────────────────────────────────
-// ── Create Mother (Onboarding) ────────────────────────────────────────────────
-// ── Create Mother (Onboarding + Dashboard) ────────────────────────────────
-// ── Create Mother (Onboarding + Dashboard) ────────────────────────────────
-exports.createMother = asyncHandler(async (req, res) => {
+// ── Create Mother (Onboarding + Dashboard) ─────────────────────────────────
+const createMother = asyncHandler(async (req, res) => {
   const {
-    // Dashboard field names
     nationalId,
     village,
     parity,
     lmp,
-
-    // Backend / mobile app field names
     name,
     phone,
     age,
@@ -54,7 +48,6 @@ exports.createMother = asyncHandler(async (req, res) => {
     emergency_contact,
   } = req.body;
 
-  // 🛡️ Map dashboard fields → backend fields (with fallbacks)
   const mappedName = name || "Unknown Mother";
   const mappedCounty = county || "N/A";
   const mappedIdNumber = id_number || nationalId || "";
@@ -67,13 +60,11 @@ exports.createMother = asyncHandler(async (req, res) => {
 
   const normalizedPhone = normalizePhone(phone);
 
-  // 🛡️ Coerce gravida / para / parity to strings in the correct format
   const gravidaRaw = String(gravida ?? "1").replace(/\D/g, "") || "1";
   const paraRaw = String(para ?? parity ?? "0").replace(/\D/g, "") || "0";
   const gravidaStr = `G${gravidaRaw}P${paraRaw}`;
   const paraStr = `P${paraRaw}`;
 
-  // 🛡️ Auto-compute weeks_pregnant from LMP if not provided
   let computedWeeks =
     parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
   if (!computedWeeks && mappedLmp) {
@@ -85,15 +76,10 @@ exports.createMother = asyncHandler(async (req, res) => {
     computedWeeks = Math.max(0, Math.min(42, Math.floor(diffDays / 7)));
   }
 
-  // 🛡️ Handle conditions as JSON array
   let conditionsJson = "[]";
-  if (Array.isArray(conditions)) {
-    conditionsJson = JSON.stringify(conditions);
-  } else if (typeof conditions === "string") {
-    conditionsJson = conditions;
-  }
+  if (Array.isArray(conditions)) conditionsJson = JSON.stringify(conditions);
+  else if (typeof conditions === "string") conditionsJson = conditions;
 
-  // 🛡️ Compute EDD if missing
   let computedEdd = edd || null;
   if (!computedEdd && mappedLmp) {
     const lmpDate = new Date(mappedLmp);
@@ -101,7 +87,6 @@ exports.createMother = asyncHandler(async (req, res) => {
     computedEdd = lmpDate.toISOString().split("T")[0];
   }
 
-  // 🚀 INSERT with all mapped variables
   const result = await pool.query(
     `INSERT INTO mothers (
       name, phone, age, weeks_pregnant_at_registration, county, id_number,
@@ -138,29 +123,29 @@ exports.createMother = asyncHandler(async (req, res) => {
       updated_at                     = NOW()
     RETURNING id, phone, name, nurse_name, facility_name`,
     [
-      mappedName, // $1
-      normalizedPhone, // $2
-      age ? parseInt(age) : null, // $3
-      computedWeeks, // $4
-      mappedCounty, // $5
-      mappedIdNumber, // $6
-      nurseNameFinal, // $7
-      nursePhoneFinal, // $8
-      facilityNameFinal, // $9
-      facilityCodeFinal, // $10
-      partner_name || "", // $11
-      partner_age ? parseInt(partner_age) : null, // $12
-      partner_phone || "", // $13
-      profile_photo || null, // $14
-      conditionsJson, // $15
-      registration_date || new Date().toISOString(), // $16
-      computedEdd, // $17
-      mappedLmp, // $18
-      gravidaStr, // $19
-      paraStr, // $20
-      blood_group || null, // $21
-      mappedAddress, // $22
-      emergency_contact || null, // $23
+      mappedName,
+      normalizedPhone,
+      age ? parseInt(age) : null,
+      computedWeeks,
+      mappedCounty,
+      mappedIdNumber,
+      nurseNameFinal,
+      nursePhoneFinal,
+      facilityNameFinal,
+      facilityCodeFinal,
+      partner_name || "",
+      partner_age ? parseInt(partner_age) : null,
+      partner_phone || "",
+      profile_photo || null,
+      conditionsJson,
+      registration_date || new Date().toISOString(),
+      computedEdd,
+      mappedLmp,
+      gravidaStr,
+      paraStr,
+      blood_group || null,
+      mappedAddress,
+      emergency_contact || null,
     ],
   );
 
@@ -168,7 +153,6 @@ exports.createMother = asyncHandler(async (req, res) => {
     `✅ Mother created/updated: ${normalizedPhone} (nurse: ${nurseNameFinal})`,
   );
 
-  // 🚀 Return in the shape the dashboard expects
   res.status(201).json({
     success: true,
     data: {
@@ -191,14 +175,95 @@ exports.createMother = asyncHandler(async (req, res) => {
   });
 });
 
-// ── Get Mother by Phone ────────────────────────────────────────────────────────
-exports.getMotherByPhone = asyncHandler(async (req, res) => {
+// ── Update Mother ──────────────────────────────────────────────────────────
+const updateMother = async (req, res) => {
+  const { phone } = req.params;
+  const normalizedPhone = normalizePhone(phone);
+  const updates = req.body;
+
+  const allowedFields = [
+    "name",
+    "age",
+    "id_number",
+    "county",
+    "profile_photo_url",
+    "weeks_pregnant_at_registration",
+    "registration_date",
+    "edd",
+    "gravida",
+    "para",
+    "conditions",
+    "nurse_name",
+    "nurse_phone",
+    "facility_name",
+    "facility_code",
+    "partner_name",
+    "partner_age",
+    "partner_phone",
+    "pin_hash",
+    "pin_set",
+  ];
+
+  const filteredUpdates = {};
+  for (const key of allowedFields) {
+    if (Object.prototype.hasOwnProperty.call(updates, key)) {
+      filteredUpdates[key] = Array.isArray(updates[key])
+        ? JSON.stringify(updates[key])
+        : updates[key];
+    }
+  }
+
+  const keys = Object.keys(filteredUpdates);
+  if (keys.length === 0) {
+    return res
+      .status(400)
+      .json({ success: false, error: "No valid fields to update" });
+  }
+
+  const setClause = keys
+    .map((key, i) => {
+      if (
+        ["age", "weeks_pregnant_at_registration", "partner_age"].includes(key)
+      ) {
+        return `"${key}" = $${i + 1}::int`;
+      }
+      if (key === "pin_set") return `"${key}" = $${i + 1}::boolean`;
+      if (key === "conditions") return `"${key}" = $${i + 1}::jsonb`;
+      return `"${key}" = $${i + 1}`;
+    })
+    .join(", ");
+
+  const values = keys.map((k) => filteredUpdates[k]);
+  values.push(normalizedPhone);
+
+  try {
+    const query = `
+      UPDATE mothers
+      SET ${setClause}, updated_at = NOW()
+      WHERE phone = $${keys.length + 1}
+      RETURNING id, phone
+    `;
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Mother not found" });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error("updateMother error:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ── Get Mother by Phone ────────────────────────────────────────────────────
+const getMotherByPhone = asyncHandler(async (req, res) => {
   const normalizedPhone = normalizePhone(req.params.phone);
 
   const { rows } = await pool.query("SELECT * FROM mothers WHERE phone = $1", [
     normalizedPhone,
   ]);
-
   if (rows.length === 0) {
     throw new ApiError(
       404,
@@ -206,10 +271,8 @@ exports.getMotherByPhone = asyncHandler(async (req, res) => {
       errorCodes.NOT_FOUND,
     );
   }
-
   const mother = rows[0];
 
-  // Fetch clinical data in parallel
   const [visits, labs, vax, symptoms, alerts] = await Promise.all([
     pool.query(
       "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
@@ -233,55 +296,117 @@ exports.getMotherByPhone = asyncHandler(async (req, res) => {
     ),
   ]);
 
-  // 🚨 FIX: Map snake_case DB columns to camelCase for React Native
   res.status(200).json({
     success: true,
     data: {
-      // Identity
       name: mother.name,
       age: mother.age,
       idNumber: mother.id_number,
       phone: mother.phone,
       county: mother.county,
       profilePhoto: mother.profile_photo_url || null,
-
-      // Pregnancy
       weeksPregnantAtRegistration: mother.weeks_pregnant_at_registration,
       registrationDate: mother.registration_date,
       edd: mother.edd,
       gravida: mother.gravida,
       para: mother.para,
       conditions: Array.isArray(mother.conditions) ? mother.conditions : [],
-
-      // Care Team
       nurseName: mother.nurse_name,
       nursePhone: mother.nurse_phone,
       facilityName: mother.facility_name,
       facilityCode: mother.facility_code,
-
-      // Partner
       partnerName: mother.partner_name,
       partnerAge: mother.partner_age,
       partnerPhone: mother.partner_phone,
-
-      // Clinical (Mapped and separated)
       ancVisits: visits.rows,
       labResults: labs.rows,
       vaccinations: vax.rows,
       symptomLogs: symptoms.rows,
       alerts: alerts.rows,
-
-      // Meta
       createdAt: mother.created_at,
       lastSyncedAt: mother.updated_at,
     },
   });
 });
 
-// ── Upload Profile Photo ───────────────────────────────────────────────────────
-// FIX 3: Supabase removed from top-level import — loaded lazily
-// so a missing SUPABASE_URL env var does not crash the whole controller
-exports.uploadProfilePhoto = async (req, res) => {
+// ── Get All Mothers (filtered by nurse) ────────────────────────────────────
+const getAllMothers = asyncHandler(async (req, res) => {
+  const nursePhone = req.chv?.phone;
+  let query = "SELECT * FROM mothers";
+  const params = [];
+
+  if (nursePhone) {
+    query += " WHERE nurse_phone = $1";
+    params.push(nursePhone);
+  }
+  query += " ORDER BY created_at DESC";
+
+  const result = await pool.query(query, params);
+
+  const mothers = result.rows.map((m) => ({
+    id: m.id,
+    name: m.name,
+    phone: m.phone,
+    age: m.age,
+    idNumber: m.id_number,
+    county: m.county,
+    weeksPregnantAtRegistration: m.weeks_pregnant_at_registration,
+    edd: m.edd,
+    nurseName: m.nurse_name,
+    nursePhone: m.nurse_phone,
+    facilityName: m.facility_name,
+    facilityCode: m.facility_code,
+    createdAt: m.created_at,
+  }));
+
+  res.status(200).json({ success: true, data: mothers });
+});
+
+// ── Search Mothers (filtered by nurse) ─────────────────────────────────────
+const searchMothers = asyncHandler(async (req, res) => {
+  const q = (req.query.q || "").trim();
+  const nursePhone = req.chv?.phone;
+
+  let query = "SELECT * FROM mothers";
+  const params = [];
+  const conditions = [];
+
+  if (nursePhone) {
+    conditions.push(`nurse_phone = $${params.length + 1}`);
+    params.push(nursePhone);
+  }
+
+  if (q) {
+    conditions.push(
+      `(name ILIKE $${params.length + 1} OR phone ILIKE $${params.length + 1})`,
+    );
+    params.push(`%${q}%`);
+  }
+
+  if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
+  query += " ORDER BY created_at DESC LIMIT 50";
+
+  const result = await pool.query(query, params);
+
+  const mothers = result.rows.map((m) => ({
+    id: m.id,
+    name: m.name,
+    phone: m.phone,
+    age: m.age,
+    idNumber: m.id_number,
+    county: m.county,
+    weeksPregnantAtRegistration: m.weeks_pregnant_at_registration,
+    edd: m.edd,
+    nurseName: m.nurse_name,
+    nursePhone: m.nurse_phone,
+    facilityName: m.facility_name,
+  }));
+
+  res.status(200).json({ success: true, data: mothers });
+});
+
+// ── Upload Profile Photo ───────────────────────────────────────────────────
+const uploadProfilePhoto = async (req, res) => {
   try {
     const supabase = require("../db/supabase");
     const { phone, base64Image } = req.body;
@@ -316,66 +441,12 @@ exports.uploadProfilePhoto = async (req, res) => {
   }
 };
 
-exports.getAllMothers = asyncHandler(async (req, res) => {
-  try {
-    const result = await pool.query(
-      "SELECT * FROM mothers ORDER BY created_at DESC",
-    );
-    // Map to camelCase if needed (like you did in getMotherByPhone)
-    const mothers = result.rows.map((m) => ({
-      id: m.id,
-      name: m.name,
-      phone: m.phone,
-      age: m.age,
-      idNumber: m.id_number,
-      county: m.county,
-      weeksPregnantAtRegistration: m.weeks_pregnant_at_registration,
-      edd: m.edd,
-      nurseName: m.nurse_name,
-      facilityName: m.facility_name,
-    }));
-    res.status(200).json({ success: true, data: mothers });
-  } catch (error) {
-    console.error("Error fetching all mothers:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ── Search Mothers (For CHV Dashboard) ─────────────────────────────────────
-exports.searchMothers = asyncHandler(async (req, res) => {
-  try {
-    const q = (req.query.q || "").trim();
-
-    if (!q) {
-      // Empty query → return all mothers (recent first)
-      const result = await pool.query(
-        "SELECT * FROM mothers ORDER BY created_at DESC LIMIT 50",
-      );
-      return res.status(200).json({ success: true, data: result.rows });
-    }
-
-    // Search by name OR phone (case-insensitive)
-    const result = await pool.query(
-      `SELECT * FROM mothers 
-       WHERE name ILIKE $1 OR phone ILIKE $1 
-       ORDER BY created_at DESC 
-       LIMIT 50`,
-      [`%${q}%`],
-    );
-
-    res.status(200).json({ success: true, data: result.rows });
-  } catch (error) {
-    console.error("searchMothers error:", error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ── Export ─────────────────────────────────────────────────────────────────────
+// ── Export ALL functions ───────────────────────────────────────────────────
 module.exports = {
-  createMother: exports.createMother,
-  updateMother: exports.updateMother,
-  getMotherByPhone: exports.getMotherByPhone,
-  uploadProfilePhoto: exports.uploadProfilePhoto,
-  getAllMothers: exports.getAllMothers,
-  searchMothers: exports.searchMothers, // <-- ADD THIS
+  createMother,
+  updateMother,
+  getMotherByPhone,
+  getAllMothers,
+  searchMothers,
+  uploadProfilePhoto,
 };
