@@ -14,6 +14,14 @@ const normalizePhone = (phone) => {
   else if (!p.startsWith("+")) p = "+" + p;
   return p;
 };
+// ── Generate 8-character registration code ─────────────────────────────────
+const generateRegistrationCode = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < 8; i++)
+    out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+};
 
 // ── Create Mother (Onboarding + Dashboard) ─────────────────────────────────
 const createMother = asyncHandler(async (req, res) => {
@@ -87,6 +95,7 @@ const createMother = asyncHandler(async (req, res) => {
     computedEdd = lmpDate.toISOString().split("T")[0];
   }
 
+  // 🚀 STEP 1: Insert the mother
   const result = await pool.query(
     `INSERT INTO mothers (
       name, phone, age, weeks_pregnant_at_registration, county, id_number,
@@ -149,18 +158,43 @@ const createMother = asyncHandler(async (req, res) => {
     ],
   );
 
-  console.log(
-    `✅ Mother created/updated: ${normalizedPhone} (nurse: ${nurseNameFinal})`,
+  const motherId = result.rows[0].id;
+
+  // 🚀 STEP 2: Generate and save a registration code
+  const regCode = generateRegistrationCode();
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
+
+  await pool.query(
+    `INSERT INTO registration_codes 
+     (code, mother_phone, mother_name, weeks_pregnant, nurse_id, 
+      facility_name, facility_code, expires_at, used)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
+     ON CONFLICT (code) DO NOTHING`,
+    [
+      regCode,
+      normalizedPhone,
+      mappedName,
+      computedWeeks,
+      null, // nurse_id — fill if you have it from req.chv
+      facilityNameFinal,
+      facilityCodeFinal,
+      expiresAt,
+    ],
   );
 
+  console.log(
+    `✅ Mother created/updated: ${normalizedPhone} (code: ${regCode})`,
+  );
+
+  // 🚀 STEP 3: Return the code in the response
   res.status(201).json({
     success: true,
     data: {
       mother: {
-        id: result.rows[0].id,
+        id: motherId,
         name: result.rows[0].name,
         phone: result.rows[0].phone,
-        registrationCode: "N/A",
+        registrationCode: regCode,
         edd: computedEdd,
         gravida: gravidaStr,
         parity: paraStr,
