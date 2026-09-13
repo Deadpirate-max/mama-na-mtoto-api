@@ -2,7 +2,10 @@ const express = require("express");
 const { validate } = require("../middleware/validate");
 const {
   createMother,
-  getMotherByPhone,
+  getMother,
+  getAncVisits,
+  getLabResults,
+  getVaccinations,
   updateMother,
   uploadProfilePhoto,
   getAllMothers,
@@ -61,11 +64,17 @@ const createMotherSchema = {
 router.post("/", validate(createMotherSchema), createMother);
 router.get("/", getAllMothers);
 router.get("/search", searchMothers);
-router.get("/:phone", getMotherByPhone);
-router.put("/:phone", updateMother);
-router.patch("/:phone/visits/:number", updateVisit);
-router.patch("/:phone/labs/:id", updateLabResult);
-router.patch("/:phone/vaccinations/:id", updateVaccination);
 router.post("/upload-photo", uploadProfilePhoto);
+
+// New: UUID or phone
+router.get("/:id", getMother);
+router.get("/:id/anc-visits", getAncVisits);
+router.get("/:id/lab-results", getLabResults);
+router.get("/:id/vaccinations", getVaccinations);
+
+router.put("/:id", updateMother);
+router.patch("/:id/visits/:number", updateVisit);
+router.patch("/:id/labs/:id", updateLabResult);
+router.patch("/:id/vaccinations/:id", updateVaccination);
 
 module.exports = router;

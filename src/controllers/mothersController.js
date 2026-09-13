@@ -291,75 +291,140 @@ const updateMother = async (req, res) => {
   }
 };
 
-// ── Get Mother by Phone ────────────────────────────────────────────────────
-const getMotherByPhone = asyncHandler(async (req, res) => {
-  const normalizedPhone = normalizePhone(req.params.phone);
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  const { rows } = await pool.query("SELECT * FROM mothers WHERE phone = $1", [
-    normalizedPhone,
-  ]);
+// ── Get Mother (by UUID or phone) ──────────────────────────────────────────
+const getMother = asyncHandler(async (req, res) => {
+  const raw = req.params.id;
+  const isUuid = UUID_RE.test(raw);
+  const value = isUuid ? raw : normalizePhone(raw);
+
+  const { rows } = await pool.query(
+    isUuid
+      ? "SELECT * FROM mothers WHERE id = $1"
+      : "SELECT * FROM mothers WHERE phone = $1",
+    [value],
+  );
+
   if (rows.length === 0) {
     throw new ApiError(
       404,
-      `No mother found with phone ${normalizedPhone}`,
+      `No mother found with ${isUuid ? "id" : "phone"} ${value}`,
       errorCodes.NOT_FOUND,
     );
   }
-  const mother = rows[0];
+  const m = rows[0];
 
-  const [visits, labs, vax, symptoms, alerts] = await Promise.all([
+  // Optional: latest registration code + next appointment
+  const [{ rows: codeRows }, { rows: nextRows }] = await Promise.all([
     pool.query(
-      "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
-      [mother.id],
+      `SELECT code FROM registration_codes
+       WHERE mother_phone = $1
+       ORDER BY expires_at DESC LIMIT 1`,
+      [m.phone],
     ),
     pool.query(
-      "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC",
-      [mother.id],
-    ),
-    pool.query(
-      "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date",
-      [mother.id],
-    ),
-    pool.query(
-      "SELECT * FROM symptom_logs WHERE mother_id = $1 ORDER BY log_date DESC",
-      [mother.id],
-    ),
-    pool.query(
-      "SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC",
-      [mother.id],
+      `SELECT next_appointment FROM anc_visits
+       WHERE mother_id = $1 AND next_appointment > NOW()
+       ORDER BY next_appointment ASC LIMIT 1`,
+      [m.id],
     ),
   ]);
 
   res.status(200).json({
     success: true,
     data: {
-      name: mother.name,
-      age: mother.age,
-      idNumber: mother.id_number,
-      phone: mother.phone,
-      county: mother.county,
-      profilePhoto: mother.profile_photo_url || null,
-      weeksPregnantAtRegistration: mother.weeks_pregnant_at_registration,
-      registrationDate: mother.registration_date,
-      edd: mother.edd,
-      gravida: mother.gravida,
-      para: mother.para,
-      conditions: Array.isArray(mother.conditions) ? mother.conditions : [],
-      nurseName: mother.nurse_name,
-      nursePhone: mother.nurse_phone,
-      facilityName: mother.facility_name,
-      facilityCode: mother.facility_code,
-      partnerName: mother.partner_name,
-      partnerAge: mother.partner_age,
-      partnerPhone: mother.partner_phone,
-      ancVisits: visits.rows,
-      labResults: labs.rows,
-      vaccinations: vax.rows,
-      symptomLogs: symptoms.rows,
-      alerts: alerts.rows,
-      createdAt: mother.created_at,
-      lastSyncedAt: mother.updated_at,
+      id: m.id,
+      name: m.name,
+      phone: m.phone,
+      registrationCode: codeRows[0]?.code ?? null,
+      age: m.age,
+      nationalId: m.id_number ?? "",
+      village: m.address ?? m.county ?? "",
+      lmp: m.lmp_date,
+      edd: m.edd,
+      gravida: m.gravida,
+      parity: m.para,
+      riskLevel: "low", // plug in real logic later
+      nextAppointment: nextRows[0]?.next_appointment ?? null,
+      createdAt: m.created_at,
+      nurse_name: m.nurse_name,
+      nurse_phone: m.nurse_phone,
+      facility_name: m.facility_name,
+      facility_code: m.facility_code,
     },
+  });
+});
+
+// ── Sub-route: ANC visits ──────────────────────────────────────────────────
+const getAncVisits = asyncHandler(async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
+    [req.params.id],
+  );
+  res.status(200).json({
+    success: true,
+    data: rows.map((v) => ({
+      id: v.id,
+      motherId: v.mother_id,
+      visitDate: v.visit_date,
+      gestationWeeks: v.gestation_weeks,
+      bpSystolic: v.bp_systolic,
+      bpDiastolic: v.bp_diastolic,
+      weightKg: v.weight_kg,
+      fundalHeightCm: v.fundal_height_cm,
+      fetalHeartRate: v.fetal_heart_rate,
+      urineProtein: v.urine_protein,
+      urineGlucose: v.urine_glucose,
+      notes: v.notes,
+      nextAppointment: v.next_appointment,
+      flags: v.flags ?? [],
+    })),
+  });
+});
+
+// ── Sub-route: lab results ─────────────────────────────────────────────────
+const getLabResults = asyncHandler(async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC",
+    [req.params.id],
+  );
+  res.status(200).json({
+    success: true,
+    data: rows.map((l) => ({
+      id: l.id,
+      motherId: l.mother_id,
+      testDate: l.test_date,
+      bloodGroup: l.blood_group,
+      hb: l.hb,
+      hivStatus: l.hiv_status,
+      urinalysis: l.urinalysis,
+      bloodSugar: l.blood_sugar,
+      syphilis: l.syphilis,
+      flags: l.flags ?? [],
+    })),
+  });
+});
+
+// ── Sub-route: vaccinations ────────────────────────────────────────────────
+const getVaccinations = asyncHandler(async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date",
+    [req.params.id],
+  );
+  res.status(200).json({
+    success: true,
+    data: rows.map((v) => ({
+      id: v.id,
+      motherId: v.mother_id,
+      vaccine: v.vaccine,
+      dose: v.dose,
+      givenDate: v.administration_date,
+      batchNumber: v.batch_number,
+      administeredBy: v.administered_by,
+      nextDueDate: v.next_due_date,
+    })),
   });
 });
 
@@ -479,7 +544,10 @@ const uploadProfilePhoto = async (req, res) => {
 module.exports = {
   createMother,
   updateMother,
-  getMotherByPhone,
+  getMother,
+  getAncVisits,
+  getLabResults,
+  getVaccinations,
   getAllMothers,
   searchMothers,
   uploadProfilePhoto,
