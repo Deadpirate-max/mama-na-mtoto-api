@@ -14,6 +14,7 @@ const normalizePhone = (phone) => {
   else if (!p.startsWith("+")) p = "+" + p;
   return p;
 };
+
 // ── Generate 8-character registration code ─────────────────────────────────
 const generateRegistrationCode = () => {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -21,6 +22,66 @@ const generateRegistrationCode = () => {
   for (let i = 0; i < 8; i++)
     out += chars[Math.floor(Math.random() * chars.length)];
   return out;
+};
+
+// ── Shared: build full mother response (camelCase) ─────────────────────────
+const buildMotherResponse = async (mother) => {
+  const [visits, labs, vax, symptoms, alerts] = await Promise.all([
+    pool.query(
+      "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
+      [mother.id],
+    ),
+    pool.query(
+      "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC NULLS LAST",
+      [mother.id],
+    ),
+    pool.query(
+      "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date NULLS LAST",
+      [mother.id],
+    ),
+    pool.query(
+      "SELECT * FROM symptom_logs WHERE mother_id = $1 ORDER BY log_date DESC LIMIT 20",
+      [mother.id],
+    ),
+    pool.query(
+      "SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC LIMIT 20",
+      [mother.id],
+    ),
+  ]);
+
+  return {
+    id: mother.id,
+    name: mother.name,
+    age: mother.age,
+    idNumber: mother.id_number,
+    phone: mother.phone,
+    county: mother.county,
+    village: mother.address,
+    profilePhoto: mother.profile_photo_url || null,
+    weeksPregnantAtRegistration: mother.weeks_pregnant_at_registration,
+    registrationDate: mother.registration_date,
+    edd: mother.edd,
+    lmp: mother.lmp_date,
+    gravida: mother.gravida,
+    para: mother.para,
+    bloodGroup: mother.blood_group,
+    conditions: Array.isArray(mother.conditions) ? mother.conditions : [],
+    nurseName: mother.nurse_name,
+    nursePhone: mother.nurse_phone,
+    facilityName: mother.facility_name,
+    facilityCode: mother.facility_code,
+    partnerName: mother.partner_name,
+    partnerAge: mother.partner_age,
+    partnerPhone: mother.partner_phone,
+    pinSet: mother.pin_set,
+    ancVisits: visits.rows,
+    labResults: labs.rows,
+    vaccinations: vax.rows,
+    symptomLogs: symptoms.rows,
+    alerts: alerts.rows,
+    createdAt: mother.created_at,
+    lastSyncedAt: mother.updated_at,
+  };
 };
 
 // ── Create Mother (Onboarding + Dashboard) ─────────────────────────────────
@@ -95,7 +156,7 @@ const createMother = asyncHandler(async (req, res) => {
     computedEdd = lmpDate.toISOString().split("T")[0];
   }
 
-  // 🚀 STEP 1: Insert the mother
+  // 🚀 Insert the mother
   const result = await pool.query(
     `INSERT INTO mothers (
       name, phone, age, weeks_pregnant_at_registration, county, id_number,
@@ -112,8 +173,7 @@ const createMother = asyncHandler(async (req, res) => {
       $18, $19, $20, $21, $22, $23,
       NOW(), NOW()
     )
-    ON CONFLICT (phone)
-    DO UPDATE SET
+    ON CONFLICT (phone) DO UPDATE SET
       name                           = EXCLUDED.name,
       age                            = EXCLUDED.age,
       weeks_pregnant_at_registration = EXCLUDED.weeks_pregnant_at_registration,
@@ -130,7 +190,7 @@ const createMother = asyncHandler(async (req, res) => {
       gravida                        = EXCLUDED.gravida,
       para                           = EXCLUDED.para,
       updated_at                     = NOW()
-    RETURNING id, phone, name, nurse_name, facility_name`,
+    RETURNING id, phone, name`,
     [
       mappedName,
       normalizedPhone,
@@ -160,9 +220,9 @@ const createMother = asyncHandler(async (req, res) => {
 
   const motherId = result.rows[0].id;
 
-  // 🚀 STEP 2: Generate and save a registration code
+  // 🚀 Generate registration code
   const regCode = generateRegistrationCode();
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
   await pool.query(
     `INSERT INTO registration_codes 
@@ -175,18 +235,15 @@ const createMother = asyncHandler(async (req, res) => {
       normalizedPhone,
       mappedName,
       computedWeeks,
-      null, // nurse_id — fill if you have it from req.chv
+      null,
       facilityNameFinal,
       facilityCodeFinal,
       expiresAt,
     ],
   );
 
-  console.log(
-    `✅ Mother created/updated: ${normalizedPhone} (code: ${regCode})`,
-  );
+  console.log(`✅ Mother created: ${normalizedPhone} (code: ${regCode})`);
 
-  // 🚀 STEP 3: Return the code in the response
   res.status(201).json({
     success: true,
     data: {
@@ -258,9 +315,8 @@ const updateMother = async (req, res) => {
     .map((key, i) => {
       if (
         ["age", "weeks_pregnant_at_registration", "partner_age"].includes(key)
-      ) {
+      )
         return `"${key}" = $${i + 1}::int`;
-      }
       if (key === "pin_set") return `"${key}" = $${i + 1}::boolean`;
       if (key === "conditions") return `"${key}" = $${i + 1}::jsonb`;
       return `"${key}" = $${i + 1}`;
@@ -271,14 +327,8 @@ const updateMother = async (req, res) => {
   values.push(normalizedPhone);
 
   try {
-    const query = `
-      UPDATE mothers
-      SET ${setClause}, updated_at = NOW()
-      WHERE phone = $${keys.length + 1}
-      RETURNING id, phone
-    `;
+    const query = `UPDATE mothers SET ${setClause}, updated_at = NOW() WHERE phone = $${keys.length + 1} RETURNING id, phone`;
     const result = await pool.query(query, values);
-
     if (result.rows.length === 0) {
       return res
         .status(404)
@@ -291,141 +341,48 @@ const updateMother = async (req, res) => {
   }
 };
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// ── Get Mother by Phone (mobile app) ───────────────────────────────────────
+const getMotherByPhone = asyncHandler(async (req, res) => {
+  const normalizedPhone = normalizePhone(req.params.phone);
 
-// ── Get Mother (by UUID or phone) ──────────────────────────────────────────
-const getMother = asyncHandler(async (req, res) => {
-  const raw = req.params.id;
-  const isUuid = UUID_RE.test(raw);
-  const value = isUuid ? raw : normalizePhone(raw);
-
-  const { rows } = await pool.query(
-    isUuid
-      ? "SELECT * FROM mothers WHERE id = $1"
-      : "SELECT * FROM mothers WHERE phone = $1",
-    [value],
-  );
-
+  const { rows } = await pool.query("SELECT * FROM mothers WHERE phone = $1", [
+    normalizedPhone,
+  ]);
   if (rows.length === 0) {
     throw new ApiError(
       404,
-      `No mother found with ${isUuid ? "id" : "phone"} ${value}`,
+      `No mother found with phone ${normalizedPhone}`,
       errorCodes.NOT_FOUND,
     );
   }
-  const m = rows[0];
 
-  // Optional: latest registration code + next appointment
-  const [{ rows: codeRows }, { rows: nextRows }] = await Promise.all([
-    pool.query(
-      `SELECT code FROM registration_codes
-       WHERE mother_phone = $1
-       ORDER BY expires_at DESC LIMIT 1`,
-      [m.phone],
-    ),
-    pool.query(
-      `SELECT next_appointment FROM anc_visits
-       WHERE mother_id = $1 AND next_appointment > NOW()
-       ORDER BY next_appointment ASC LIMIT 1`,
-      [m.id],
-    ),
+  const data = await buildMotherResponse(rows[0]);
+  res.status(200).json({ success: true, data });
+});
+
+// ── Get Mother by ID (dashboard profile) ───────────────────────────────────
+const getMotherById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(id)) {
+    throw new ApiError(400, "Invalid mother ID format", errorCodes.BAD_REQUEST);
+  }
+
+  const { rows } = await pool.query("SELECT * FROM mothers WHERE id = $1", [
+    id,
   ]);
+  if (rows.length === 0) {
+    throw new ApiError(
+      404,
+      `No mother found with id ${id}`,
+      errorCodes.NOT_FOUND,
+    );
+  }
 
-  res.status(200).json({
-    success: true,
-    data: {
-      id: m.id,
-      name: m.name,
-      phone: m.phone,
-      registrationCode: codeRows[0]?.code ?? null,
-      age: m.age,
-      nationalId: m.id_number ?? "",
-      village: m.address ?? m.county ?? "",
-      lmp: m.lmp_date,
-      edd: m.edd,
-      gravida: m.gravida,
-      parity: m.para,
-      riskLevel: "low", // plug in real logic later
-      nextAppointment: nextRows[0]?.next_appointment ?? null,
-      createdAt: m.created_at,
-      nurse_name: m.nurse_name,
-      nurse_phone: m.nurse_phone,
-      facility_name: m.facility_name,
-      facility_code: m.facility_code,
-    },
-  });
-});
-
-// ── Sub-route: ANC visits ──────────────────────────────────────────────────
-const getAncVisits = asyncHandler(async (req, res) => {
-  const { rows } = await pool.query(
-    "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
-    [req.params.id],
-  );
-  res.status(200).json({
-    success: true,
-    data: rows.map((v) => ({
-      id: v.id,
-      motherId: v.mother_id,
-      visitDate: v.visit_date,
-      gestationWeeks: v.gestation_weeks,
-      bpSystolic: v.bp_systolic,
-      bpDiastolic: v.bp_diastolic,
-      weightKg: v.weight_kg,
-      fundalHeightCm: v.fundal_height_cm,
-      fetalHeartRate: v.fetal_heart_rate,
-      urineProtein: v.urine_protein,
-      urineGlucose: v.urine_glucose,
-      notes: v.notes,
-      nextAppointment: v.next_appointment,
-      flags: v.flags ?? [],
-    })),
-  });
-});
-
-// ── Sub-route: lab results ─────────────────────────────────────────────────
-const getLabResults = asyncHandler(async (req, res) => {
-  const { rows } = await pool.query(
-    "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC",
-    [req.params.id],
-  );
-  res.status(200).json({
-    success: true,
-    data: rows.map((l) => ({
-      id: l.id,
-      motherId: l.mother_id,
-      testDate: l.test_date,
-      bloodGroup: l.blood_group,
-      hb: l.hb,
-      hivStatus: l.hiv_status,
-      urinalysis: l.urinalysis,
-      bloodSugar: l.blood_sugar,
-      syphilis: l.syphilis,
-      flags: l.flags ?? [],
-    })),
-  });
-});
-
-// ── Sub-route: vaccinations ────────────────────────────────────────────────
-const getVaccinations = asyncHandler(async (req, res) => {
-  const { rows } = await pool.query(
-    "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date",
-    [req.params.id],
-  );
-  res.status(200).json({
-    success: true,
-    data: rows.map((v) => ({
-      id: v.id,
-      motherId: v.mother_id,
-      vaccine: v.vaccine,
-      dose: v.dose,
-      givenDate: v.administration_date,
-      batchNumber: v.batch_number,
-      administeredBy: v.administered_by,
-      nextDueDate: v.next_due_date,
-    })),
-  });
+  const data = await buildMotherResponse(rows[0]);
+  res.status(200).json({ success: true, data });
 });
 
 // ── Get All Mothers (filtered by nurse) ────────────────────────────────────
@@ -461,7 +418,7 @@ const getAllMothers = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: mothers });
 });
 
-// ── Search Mothers (filtered by nurse) ─────────────────────────────────────
+// ── Search Mothers (filtered by nurse, phone-normalized) ───────────────────
 const searchMothers = asyncHandler(async (req, res) => {
   const q = (req.query.q || "").trim();
   const nursePhone = req.chv?.phone;
@@ -470,35 +427,26 @@ const searchMothers = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = [];
 
-  // 🛡️ MULTI-TENANT FILTER
   if (nursePhone) {
     conditions.push(`nurse_phone = $${params.length + 1}`);
     params.push(nursePhone);
   }
 
-  // 🛡️ SEARCH with phone normalization
   if (q) {
-    // Normalize query to handle 0795..., 254795..., +254795...
     const digitsOnly = q.replace(/\D/g, "");
     let normalized = q;
-
     if (digitsOnly.length >= 9) {
-      // Looks like a phone number
-      if (digitsOnly.startsWith("0")) {
+      if (digitsOnly.startsWith("0"))
         normalized = "+254" + digitsOnly.substring(1);
-      } else if (digitsOnly.startsWith("254")) {
-        normalized = "+" + digitsOnly;
-      } else if (/^[17]\d{8}$/.test(digitsOnly)) {
-        normalized = "+254" + digitsOnly;
-      }
+      else if (digitsOnly.startsWith("254")) normalized = "+" + digitsOnly;
+      else if (/^[17]\d{8}$/.test(digitsOnly)) normalized = "+254" + digitsOnly;
     }
 
-    // Match either name OR phone (using normalized phone)
     conditions.push(
       `(name ILIKE $${params.length + 1} OR phone ILIKE $${params.length + 1} OR phone ILIKE $${params.length + 2})`,
     );
-    params.push(`%${q}%`); // Raw search (for names)
-    params.push(`%${normalized}%`); // Normalized (for phones)
+    params.push(`%${q}%`);
+    params.push(`%${normalized}%`);
   }
 
   if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
@@ -522,6 +470,7 @@ const searchMothers = asyncHandler(async (req, res) => {
 
   res.status(200).json({ success: true, data: mothers });
 });
+
 // ── Upload Profile Photo ───────────────────────────────────────────────────
 const uploadProfilePhoto = async (req, res) => {
   try {
@@ -557,88 +506,6 @@ const uploadProfilePhoto = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
-// ── Get Mother by ID (for dashboard profile view) ─────────────────────────
-const getMotherById = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-
-  // Validate UUID
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(id)) {
-    throw new ApiError(400, "Invalid mother ID format", errorCodes.BAD_REQUEST);
-  }
-
-  const { rows } = await pool.query("SELECT * FROM mothers WHERE id = $1", [
-    id,
-  ]);
-  if (rows.length === 0) {
-    throw new ApiError(
-      404,
-      `No mother found with id ${id}`,
-      errorCodes.NOT_FOUND,
-    );
-  }
-  const mother = rows[0];
-
-  const [visits, labs, vax, symptoms, alerts] = await Promise.all([
-    pool.query(
-      "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
-      [mother.id],
-    ),
-    pool.query(
-      "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC NULLS LAST",
-      [mother.id],
-    ),
-    pool.query(
-      "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date NULLS LAST",
-      [mother.id],
-    ),
-    pool.query(
-      "SELECT * FROM symptom_logs WHERE mother_id = $1 ORDER BY log_date DESC LIMIT 20",
-      [mother.id],
-    ),
-    pool.query(
-      "SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC LIMIT 20",
-      [mother.id],
-    ),
-  ]);
-
-  res.status(200).json({
-    success: true,
-    data: {
-      id: mother.id,
-      name: mother.name,
-      age: mother.age,
-      idNumber: mother.id_number,
-      phone: mother.phone,
-      county: mother.county,
-      village: mother.address,
-      profilePhoto: mother.profile_photo_url || null,
-      weeksPregnantAtRegistration: mother.weeks_pregnant_at_registration,
-      registrationDate: mother.registration_date,
-      edd: mother.edd,
-      lmp: mother.lmp_date,
-      gravida: mother.gravida,
-      para: mother.para,
-      bloodGroup: mother.blood_group,
-      conditions: Array.isArray(mother.conditions) ? mother.conditions : [],
-      nurseName: mother.nurse_name,
-      nursePhone: mother.nurse_phone,
-      facilityName: mother.facility_name,
-      facilityCode: mother.facility_code,
-      partnerName: mother.partner_name,
-      partnerAge: mother.partner_age,
-      partnerPhone: mother.partner_phone,
-      ancVisits: visits.rows,
-      labResults: labs.rows,
-      vaccinations: vax.rows,
-      symptomLogs: symptoms.rows,
-      alerts: alerts.rows,
-      createdAt: mother.created_at,
-      lastSyncedAt: mother.updated_at,
-    },
-  });
-});
 
 // ── Export ALL functions ───────────────────────────────────────────────────
 module.exports = {
