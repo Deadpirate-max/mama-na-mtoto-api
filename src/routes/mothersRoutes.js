@@ -48,15 +48,12 @@ const createMotherSchema = {
 
 // ── Routes ────────────────────────────────────────────────────────────────
 
-// Mobile app (no auth)
+router.get("/search", requireChvAuth, searchMothers);
+router.get("/id/:id", requireChvAuth, getMotherById);
+router.get("/", requireChvAuth, getAllMothers);
 router.post("/", validate(createMotherSchema), createMother);
 router.get("/:phone", getMotherByPhone);
 router.put("/:phone", updateMother);
 router.post("/upload-photo", uploadProfilePhoto);
-
-// Dashboard (auth required)
-router.get("/", requireChvAuth, getAllMothers);
-router.get("/search", requireChvAuth, searchMothers);
-router.get("/id/:id", requireChvAuth, getMotherById);
 
 module.exports = router;
