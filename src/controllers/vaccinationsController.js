@@ -1,5 +1,21 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
+function validateVaccinationData({ name, givenDate }) {
+  const errors = [];
+  if (!name || name.trim().length === 0)
+    errors.push("Vaccine name is required");
+  if (givenDate) {
+    const d = new Date(givenDate);
+    if (isNaN(d.getTime())) errors.push("Invalid date format");
+    else if (d > new Date())
+      errors.push("Cannot record a future vaccination date");
+  }
+  return errors;
+}
+const errors = validateVaccinationData({ name, givenDate });
+if (errors.length > 0) {
+  return res.status(400).json({ success: false, errors });
+}
 
 // ── Get all vaccinations for a mother ──────────────────────────────────────
 exports.getVaccinations = asyncHandler(async (req, res) => {

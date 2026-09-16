@@ -1,6 +1,17 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
 
+function validateLabData({ name, value, status }) {
+  const errors = [];
+  if (!name || name.trim().length === 0)
+    errors.push("Lab test name is required");
+  if (!status || !["pending", "complete", "abnormal"].includes(status)) {
+    errors.push("Status must be pending, complete, or abnormal");
+  }
+  if (value && value.length > 100)
+    errors.push("Lab value too long (max 100 chars)");
+  return errors;
+}
 // ── Get all lab results for a mother ───────────────────────────────────────
 exports.getLabs = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -16,6 +27,11 @@ exports.createLab = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, value, unit, normalRange, status, testDate, recordedBy } =
     req.body;
+
+  const errors = validateLabData({ name, value, status });
+  if (errors.length > 0) {
+    return res.status(400).json({ success: false, errors });
+  }
 
   const result = await pool.query(
     `INSERT INTO lab_results (
