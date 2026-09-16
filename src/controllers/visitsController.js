@@ -1,6 +1,39 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
 
+// ── 🛡️ Clinical validation helpers ────────────────────────────────────────
+function validateVisitData({
+  bpSystolic,
+  bpDiastolic,
+  weight,
+  fundalHeight,
+  fetalHeartRate,
+}) {
+  const errors = [];
+
+  if (bpSystolic !== null && bpSystolic !== undefined) {
+    if (bpSystolic < 50 || bpSystolic > 250)
+      errors.push("BP systolic must be 50-250 mmHg");
+  }
+  if (bpDiastolic !== null && bpDiastolic !== undefined) {
+    if (bpDiastolic < 30 || bpDiastolic > 150)
+      errors.push("BP diastolic must be 30-150 mmHg");
+  }
+  if (weight !== null && weight !== undefined) {
+    if (weight < 30 || weight > 200) errors.push("Weight must be 30-200 kg");
+  }
+  if (fundalHeight !== null && fundalHeight !== undefined) {
+    if (fundalHeight < 5 || fundalHeight > 50)
+      errors.push("Fundal height must be 5-50 cm");
+  }
+  if (fetalHeartRate !== null && fetalHeartRate !== undefined) {
+    if (fetalHeartRate < 60 || fetalHeartRate > 220)
+      errors.push("Fetal heart rate must be 60-220 bpm");
+  }
+
+  return errors;
+}
+
 // ── Get all visits for a mother ────────────────────────────────────────────
 exports.getVisits = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -14,6 +47,8 @@ exports.getVisits = asyncHandler(async (req, res) => {
 // ── Add a new visit ────────────────────────────────────────────────────────
 exports.createVisit = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
+  // 🛡️ Destructure with defaults
   const {
     visitNumber,
     scheduledWeek,
@@ -30,6 +65,18 @@ exports.createVisit = asyncHandler(async (req, res) => {
     notes,
     recordedBy,
   } = req.body;
+
+  // 🛡️ Validate clinical ranges
+  const errors = validateVisitData({
+    bpSystolic,
+    bpDiastolic,
+    weight,
+    fundalHeight,
+    fetalHeartRate,
+  });
+  if (errors.length > 0) {
+    return res.status(400).json({ success: false, errors });
+  }
 
   const result = await pool.query(
     `INSERT INTO anc_visits (
@@ -64,42 +111,12 @@ exports.createVisit = asyncHandler(async (req, res) => {
 
   res.status(201).json({ success: true, data: result.rows[0] });
 });
-// Clinical validation helpers
-function validateVisitData({
-  bpSystolic,
-  bpDiastolic,
-  weight,
-  fundalHeight,
-  fetalHeartRate,
-}) {
-  const errors = [];
 
-  if (bpSystolic !== null && bpSystolic !== undefined) {
-    if (bpSystolic < 50 || bpSystolic > 250)
-      errors.push("BP systolic must be 50-250 mmHg");
-  }
-  if (bpDiastolic !== null && bpDiastolic !== undefined) {
-    if (bpDiastolic < 30 || bpDiastolic > 150)
-      errors.push("BP diastolic must be 30-150 mmHg");
-  }
-  if (weight !== null && weight !== undefined) {
-    if (weight < 30 || weight > 200) errors.push("Weight must be 30-200 kg");
-  }
-  if (fundalHeight !== null && fundalHeight !== undefined) {
-    if (fundalHeight < 5 || fundalHeight > 50)
-      errors.push("Fundal height must be 5-50 cm");
-  }
-  if (fetalHeartRate !== null && fetalHeartRate !== undefined) {
-    if (fetalHeartRate < 60 || fetalHeartRate > 220)
-      errors.push("Fetal heart rate must be 60-220 bpm");
-  }
-  return errors;
-}
-
-// ── Update a visit (kept for compatibility) ────────────────────────────────
+// ── Update a visit ─────────────────────────────────────────────────────────
 exports.updateVisit = asyncHandler(async (req, res) => {
   const { id, number } = req.params;
   const updates = req.body;
+
   const allowed = [
     "visit_date",
     "attended",
@@ -114,10 +131,12 @@ exports.updateVisit = asyncHandler(async (req, res) => {
     "notes",
     "recorded_by",
   ];
+
   const keys = Object.keys(updates).filter((k) => allowed.includes(k));
   if (keys.length === 0) {
     return res.status(400).json({ success: false, error: "No valid fields" });
   }
+
   const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
   const values = keys.map((k) => updates[k]);
   values.push(id, number);
@@ -128,16 +147,6 @@ exports.updateVisit = asyncHandler(async (req, res) => {
      RETURNING *`,
     values,
   );
+
   res.json({ success: true, data: result.rows[0] });
 });
-
-const errors = validateVisitData({
-  bpSystolic,
-  bpDiastolic,
-  weight,
-  fundalHeight,
-  fetalHeartRate,
-});
-if (errors.length > 0) {
-  return res.status(400).json({ success: false, errors });
-}

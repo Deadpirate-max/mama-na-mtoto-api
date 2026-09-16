@@ -12,7 +12,7 @@ function validateLabData({ name, value, status }) {
     errors.push("Lab value too long (max 100 chars)");
   return errors;
 }
-// ── Get all lab results for a mother ───────────────────────────────────────
+
 exports.getLabs = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const result = await pool.query(
@@ -22,7 +22,6 @@ exports.getLabs = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result.rows });
 });
 
-// ── Add a lab result ───────────────────────────────────────────────────────
 exports.createLab = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, value, unit, normalRange, status, testDate, recordedBy } =
@@ -41,7 +40,7 @@ exports.createLab = asyncHandler(async (req, res) => {
     RETURNING *`,
     [
       id,
-      name || "Lab test",
+      name,
       value || "",
       unit || "",
       normalRange || "",
@@ -53,9 +52,8 @@ exports.createLab = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: result.rows[0] });
 });
 
-// ── Update a lab result ────────────────────────────────────────────────────
 exports.updateLabResult = asyncHandler(async (req, res) => {
-  const { id, labId } = req.params;
+  const { labId } = req.params;
   const updates = req.body;
   const allowed = ["value", "status", "unit", "normal_range", "recorded_by"];
   const keys = Object.keys(updates).filter((k) => allowed.includes(k));

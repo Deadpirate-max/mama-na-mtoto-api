@@ -1,5 +1,6 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
+
 function validateVaccinationData({ name, givenDate }) {
   const errors = [];
   if (!name || name.trim().length === 0)
@@ -12,12 +13,7 @@ function validateVaccinationData({ name, givenDate }) {
   }
   return errors;
 }
-const errors = validateVaccinationData({ name, givenDate });
-if (errors.length > 0) {
-  return res.status(400).json({ success: false, errors });
-}
 
-// ── Get all vaccinations for a mother ──────────────────────────────────────
 exports.getVaccinations = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const result = await pool.query(
@@ -27,7 +23,6 @@ exports.getVaccinations = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result.rows });
 });
 
-// ── Add a vaccination record ───────────────────────────────────────────────
 exports.createVaccination = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const {
@@ -40,6 +35,11 @@ exports.createVaccination = asyncHandler(async (req, res) => {
     givenBy,
   } = req.body;
 
+  const errors = validateVaccinationData({ name, givenDate });
+  if (errors.length > 0) {
+    return res.status(400).json({ success: false, errors });
+  }
+
   const result = await pool.query(
     `INSERT INTO vaccinations (
       mother_id, name, target_week_or_age, due_date, given_date, given,
@@ -48,7 +48,7 @@ exports.createVaccination = asyncHandler(async (req, res) => {
     RETURNING *`,
     [
       id,
-      name || "Vaccine",
+      name,
       targetWeekOrAge || "",
       dueDate || null,
       givenDate || new Date().toISOString().split("T")[0],
@@ -61,7 +61,6 @@ exports.createVaccination = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: result.rows[0] });
 });
 
-// ── Update a vaccination ───────────────────────────────────────────────────
 exports.updateVaccination = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
