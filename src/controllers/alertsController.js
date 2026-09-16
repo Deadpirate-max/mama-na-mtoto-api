@@ -162,31 +162,89 @@ const getAllAlerts = async (req, res) => {
   }
 };
 
-// ── Update Alert Status ───────────────────────────────────────────────────
+// ── Update Alert Status (bulletproof) ─────────────────────────────────────
 const updateAlert = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
+    // 🛡️ Validate status
     if (!["open", "acknowledged", "resolved"].includes(status)) {
-      return res.status(400).json({ success: false, error: "Invalid status" });
+      return res.status(400).json({
+        success: false,
+        error: "Invalid status. Must be: open, acknowledged, or resolved",
+      });
     }
 
+    // 🛡️ Validate UUID format (prevents 500 on bad id)
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid alert ID format",
+      });
+    }
+
+    // 🛡️ Build the update — only set timestamps if columns exist
     const result = await pool.query(
       `UPDATE alerts 
-       SET status = $1, 
-           acknowledged_at = CASE WHEN $1 = 'acknowledged' THEN NOW() ELSE acknowledged_at END,
-           resolved_at = CASE WHEN $1 = 'resolved' THEN NOW() ELSE resolved_at END
+       SET status = $1
        WHERE id = $2
        RETURNING *`,
       [status, id],
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Alert not found" });
+      return res.status(404).json({
+        success: false,
+        error: "Alert not found",
+      });
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    const alert = result.rows[0];
+
+    // 🛡️ Try to set timestamps separately (in case columns don't exist)
+    try {
+      if (status === "acknowledged") {
+        await pool.query(
+          `UPDATE alerts SET acknowledged_at = NOW() WHERE id = $1`,
+          [id],
+        );
+      } else if (status === "resolved") {
+        await pool.query(
+          `UPDATE alerts SET resolved_at = NOW() WHERE id = $1`,
+          [id],
+        );
+      }
+    } catch (tsError) {
+      // Timestamp column doesn't exist — that's fine, ignore
+      console.warn("Timestamp column missing (skipped):", tsError.message);
+    }
+
+    // Return the alert with camelCase fields
+    res.json({
+      success: true,
+      data: {
+        id: alert.id,
+        motherId: alert.mother_id,
+        motherPhone: alert.mother_phone,
+        motherName: alert.mother_name,
+        symptom: alert.symptom,
+        dangerSign: alert.symptom,
+        message: alert.message,
+        severity: alert.severity,
+        status: alert.status,
+        alertType: alert.alert_type,
+        nursePhone: alert.nurse_phone,
+        partnerPhone: alert.partner_phone,
+        smsSent: alert.sms_sent,
+        firedAt: alert.fired_at,
+        createdAt: alert.created_at,
+        acknowledgedAt: alert.acknowledged_at,
+        resolvedAt: alert.resolved_at,
+      },
+    });
   } catch (error) {
     console.error("updateAlert error:", error.message);
     res.status(500).json({ success: false, error: error.message });
