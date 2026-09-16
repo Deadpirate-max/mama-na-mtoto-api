@@ -470,16 +470,35 @@ const searchMothers = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = [];
 
+  // 🛡️ MULTI-TENANT FILTER
   if (nursePhone) {
     conditions.push(`nurse_phone = $${params.length + 1}`);
     params.push(nursePhone);
   }
 
+  // 🛡️ SEARCH with phone normalization
   if (q) {
+    // Normalize query to handle 0795..., 254795..., +254795...
+    const digitsOnly = q.replace(/\D/g, "");
+    let normalized = q;
+
+    if (digitsOnly.length >= 9) {
+      // Looks like a phone number
+      if (digitsOnly.startsWith("0")) {
+        normalized = "+254" + digitsOnly.substring(1);
+      } else if (digitsOnly.startsWith("254")) {
+        normalized = "+" + digitsOnly;
+      } else if (/^[17]\d{8}$/.test(digitsOnly)) {
+        normalized = "+254" + digitsOnly;
+      }
+    }
+
+    // Match either name OR phone (using normalized phone)
     conditions.push(
-      `(name ILIKE $${params.length + 1} OR phone ILIKE $${params.length + 1})`,
+      `(name ILIKE $${params.length + 1} OR phone ILIKE $${params.length + 1} OR phone ILIKE $${params.length + 2})`,
     );
-    params.push(`%${q}%`);
+    params.push(`%${q}%`); // Raw search (for names)
+    params.push(`%${normalized}%`); // Normalized (for phones)
   }
 
   if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
@@ -503,7 +522,6 @@ const searchMothers = asyncHandler(async (req, res) => {
 
   res.status(200).json({ success: true, data: mothers });
 });
-
 // ── Upload Profile Photo ───────────────────────────────────────────────────
 const uploadProfilePhoto = async (req, res) => {
   try {
