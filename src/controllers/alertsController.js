@@ -104,15 +104,60 @@ const createDangerAlert = asyncHandler(async (req, res) => {
   }
 });
 
-// ✅ THIS IS A CONST, NOT exports.getAllAlerts
+// ── Get All Alerts (bulletproof, no JOIN dependency) ──────────────────────
 const getAllAlerts = async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT * FROM alerts ORDER BY created_at DESC",
+    // First: get all alerts
+    const alertsResult = await pool.query(
+      "SELECT * FROM alerts ORDER BY COALESCE(fired_at, created_at, NOW()) DESC LIMIT 100",
     );
-    res.status(200).json({ success: true, data: result.rows });
+
+    // Second: for each alert, try to fetch the mother's name (safe lookup)
+    const alerts = await Promise.all(
+      alertsResult.rows.map(async (alert) => {
+        let mother_name = null;
+        let mother_id = alert.mother_id || null;
+
+        if (alert.mother_phone) {
+          try {
+            const m = await pool.query(
+              "SELECT id, name FROM mothers WHERE phone = $1 LIMIT 1",
+              [alert.mother_phone],
+            );
+            if (m.rows.length > 0) {
+              mother_name = m.rows[0].name;
+              mother_id = m.rows[0].id;
+            }
+          } catch (e) {
+            // Mother not found — that's fine, continue
+          }
+        }
+
+        return {
+          id: alert.id,
+          motherId: mother_id,
+          motherPhone: alert.mother_phone,
+          motherName: mother_name,
+          symptom: alert.symptom,
+          dangerSign: alert.symptom,
+          message: alert.message || alert.symptom,
+          severity: alert.severity,
+          status: alert.status,
+          alertType: alert.alert_type,
+          nursePhone: alert.nurse_phone,
+          partnerPhone: alert.partner_phone,
+          smsSent: alert.sms_sent,
+          firedAt: alert.fired_at,
+          createdAt: alert.created_at,
+          acknowledgedAt: alert.acknowledged_at,
+          resolvedAt: alert.resolved_at,
+        };
+      }),
+    );
+
+    res.status(200).json({ success: true, data: alerts });
   } catch (error) {
-    console.error("Error fetching alerts:", error);
+    console.error("getAllAlerts error:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 };
