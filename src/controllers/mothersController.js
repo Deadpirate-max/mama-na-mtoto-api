@@ -557,15 +557,95 @@ const uploadProfilePhoto = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+// ── Get Mother by ID (for dashboard profile view) ─────────────────────────
+const getMotherById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  // Validate UUID
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(id)) {
+    throw new ApiError(400, "Invalid mother ID format", errorCodes.BAD_REQUEST);
+  }
+
+  const { rows } = await pool.query("SELECT * FROM mothers WHERE id = $1", [
+    id,
+  ]);
+  if (rows.length === 0) {
+    throw new ApiError(
+      404,
+      `No mother found with id ${id}`,
+      errorCodes.NOT_FOUND,
+    );
+  }
+  const mother = rows[0];
+
+  const [visits, labs, vax, symptoms, alerts] = await Promise.all([
+    pool.query(
+      "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
+      [mother.id],
+    ),
+    pool.query(
+      "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC NULLS LAST",
+      [mother.id],
+    ),
+    pool.query(
+      "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date NULLS LAST",
+      [mother.id],
+    ),
+    pool.query(
+      "SELECT * FROM symptom_logs WHERE mother_id = $1 ORDER BY log_date DESC LIMIT 20",
+      [mother.id],
+    ),
+    pool.query(
+      "SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC LIMIT 20",
+      [mother.id],
+    ),
+  ]);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      id: mother.id,
+      name: mother.name,
+      age: mother.age,
+      idNumber: mother.id_number,
+      phone: mother.phone,
+      county: mother.county,
+      village: mother.address,
+      profilePhoto: mother.profile_photo_url || null,
+      weeksPregnantAtRegistration: mother.weeks_pregnant_at_registration,
+      registrationDate: mother.registration_date,
+      edd: mother.edd,
+      lmp: mother.lmp_date,
+      gravida: mother.gravida,
+      para: mother.para,
+      bloodGroup: mother.blood_group,
+      conditions: Array.isArray(mother.conditions) ? mother.conditions : [],
+      nurseName: mother.nurse_name,
+      nursePhone: mother.nurse_phone,
+      facilityName: mother.facility_name,
+      facilityCode: mother.facility_code,
+      partnerName: mother.partner_name,
+      partnerAge: mother.partner_age,
+      partnerPhone: mother.partner_phone,
+      ancVisits: visits.rows,
+      labResults: labs.rows,
+      vaccinations: vax.rows,
+      symptomLogs: symptoms.rows,
+      alerts: alerts.rows,
+      createdAt: mother.created_at,
+      lastSyncedAt: mother.updated_at,
+    },
+  });
+});
 
 // ── Export ALL functions ───────────────────────────────────────────────────
 module.exports = {
   createMother,
   updateMother,
-  getMother,
-  getAncVisits,
-  getLabResults,
-  getVaccinations,
+  getMotherByPhone,
+  getMotherById,
   getAllMothers,
   searchMothers,
   uploadProfilePhoto,

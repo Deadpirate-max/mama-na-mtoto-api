@@ -7,6 +7,8 @@ const {
   getLabResults,
   getVaccinations,
   updateMother,
+  getMotherByPhone,
+  getMotherById,
   uploadProfilePhoto,
   getAllMothers,
   searchMothers,
@@ -68,6 +70,8 @@ router.post("/upload-photo", uploadProfilePhoto);
 
 // New: UUID or phone
 router.get("/:id", getMother);
+router.get("/id/:id", requireChvAuth, getMotherById);
+router.get("/:phone", getMotherByPhone);
 router.get("/:id/anc-visits", getAncVisits);
 router.get("/:id/lab-results", getLabResults);
 router.get("/:id/vaccinations", getVaccinations);
