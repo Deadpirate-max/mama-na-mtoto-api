@@ -1,45 +1,59 @@
 const pool = require("../db/pool");
-const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 
-const updateLabResult = asyncHandler(async (req, res) => {
-  const { phone, id } = req.params;
-
-  const motherResult = await pool.query(`SELECT id FROM mothers WHERE phone = $1`, [phone]);
-  if (motherResult.rows.length === 0) {
-    throw new ApiError(404, `No mother found with phone ${phone}`, errorCodes.NOT_FOUND);
-  }
-  const motherId = motherResult.rows[0].id;
-
-  const allowedFields = ["test_type", "test_date", "result", "normal_range", "status", "notes"];
-
-  const updates = {};
-  for (const field of allowedFields) {
-    if (req.body[field] !== undefined) {
-      updates[field] = req.body[field];
-    }
-  }
-
-  if (Object.keys(updates).length === 0) {
-    throw new ApiError(400, "No valid fields to update", errorCodes.BAD_REQUEST);
-  }
-
-  const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 3}`);
-  const values = [motherId, id, ...Object.values(updates)];
-
-  const { rows } = await pool.query(
-    `UPDATE lab_results
-     SET ${setClauses.join(", ")}
-     WHERE mother_id = $1 AND id = $2
-     RETURNING *`,
-    values,
+// ── Get all lab results for a mother ───────────────────────────────────────
+exports.getLabs = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query(
+    "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC NULLS LAST, created_at DESC",
+    [id],
   );
-
-  if (rows.length === 0) {
-    throw new ApiError(404, `Lab result ${id} not found for this mother`, errorCodes.NOT_FOUND);
-  }
-
-  res.status(200).json({ success: true, data: rows[0] });
+  res.json({ success: true, data: result.rows });
 });
 
-module.exports = { updateLabResult };
+// ── Add a lab result ───────────────────────────────────────────────────────
+exports.createLab = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { name, value, unit, normalRange, status, testDate, recordedBy } =
+    req.body;
+
+  const result = await pool.query(
+    `INSERT INTO lab_results (
+      mother_id, name, value, unit, normal_range, status,
+      test_date, recorded_by, recorded_at, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+    RETURNING *`,
+    [
+      id,
+      name || "Lab test",
+      value || "",
+      unit || "",
+      normalRange || "",
+      status || "complete",
+      testDate || new Date().toISOString(),
+      recordedBy || "Nurse",
+    ],
+  );
+  res.status(201).json({ success: true, data: result.rows[0] });
+});
+
+// ── Update a lab result ────────────────────────────────────────────────────
+exports.updateLabResult = asyncHandler(async (req, res) => {
+  const { id, labId } = req.params;
+  const updates = req.body;
+  const allowed = ["value", "status", "unit", "normal_range", "recorded_by"];
+  const keys = Object.keys(updates).filter((k) => allowed.includes(k));
+  if (keys.length === 0) {
+    return res.status(400).json({ success: false, error: "No valid fields" });
+  }
+  const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
+  const values = keys.map((k) => updates[k]);
+  values.push(labId);
+
+  const result = await pool.query(
+    `UPDATE lab_results SET ${setClause}, recorded_at = NOW()
+     WHERE id = $${values.length} RETURNING *`,
+    values,
+  );
+  res.json({ success: true, data: result.rows[0] });
+});

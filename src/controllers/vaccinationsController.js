@@ -1,48 +1,66 @@
 const pool = require("../db/pool");
-const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 
-const updateVaccination = asyncHandler(async (req, res) => {
-  const { phone, id } = req.params;
-
-  const motherResult = await pool.query(`SELECT id FROM mothers WHERE phone = $1`, [phone]);
-  if (motherResult.rows.length === 0) {
-    throw new ApiError(404, `No mother found with phone ${phone}`, errorCodes.NOT_FOUND);
-  }
-  const motherId = motherResult.rows[0].id;
-
-  const allowedFields = [
-    "vaccine_name", "dose_number", "administration_date",
-    "next_dose_date", "administered_by", "notes",
-  ];
-
-  const updates = {};
-  for (const field of allowedFields) {
-    if (req.body[field] !== undefined) {
-      updates[field] = req.body[field];
-    }
-  }
-
-  if (Object.keys(updates).length === 0) {
-    throw new ApiError(400, "No valid fields to update", errorCodes.BAD_REQUEST);
-  }
-
-  const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 3}`);
-  const values = [motherId, id, ...Object.values(updates)];
-
-  const { rows } = await pool.query(
-    `UPDATE vaccinations
-     SET ${setClauses.join(", ")}
-     WHERE mother_id = $1 AND id = $2
-     RETURNING *`,
-    values,
+// ── Get all vaccinations for a mother ──────────────────────────────────────
+exports.getVaccinations = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query(
+    "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date ASC NULLS LAST, created_at ASC",
+    [id],
   );
-
-  if (rows.length === 0) {
-    throw new ApiError(404, `Vaccination record ${id} not found for this mother`, errorCodes.NOT_FOUND);
-  }
-
-  res.status(200).json({ success: true, data: rows[0] });
+  res.json({ success: true, data: result.rows });
 });
 
-module.exports = { updateVaccination };
+// ── Add a vaccination record ───────────────────────────────────────────────
+exports.createVaccination = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const {
+    name,
+    targetWeekOrAge,
+    dueDate,
+    givenDate,
+    given,
+    batchNumber,
+    givenBy,
+  } = req.body;
+
+  const result = await pool.query(
+    `INSERT INTO vaccinations (
+      mother_id, name, target_week_or_age, due_date, given_date, given,
+      batch_number, given_by, administration_date, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+    RETURNING *`,
+    [
+      id,
+      name || "Vaccine",
+      targetWeekOrAge || "",
+      dueDate || null,
+      givenDate || new Date().toISOString().split("T")[0],
+      given !== undefined ? given : true,
+      batchNumber || null,
+      givenBy || "Nurse",
+      givenDate || new Date().toISOString().split("T")[0],
+    ],
+  );
+  res.status(201).json({ success: true, data: result.rows[0] });
+});
+
+// ── Update a vaccination ───────────────────────────────────────────────────
+exports.updateVaccination = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+  const allowed = ["given", "given_date", "batch_number", "given_by"];
+  const keys = Object.keys(updates).filter((k) => allowed.includes(k));
+  if (keys.length === 0) {
+    return res.status(400).json({ success: false, error: "No valid fields" });
+  }
+  const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
+  const values = keys.map((k) => updates[k]);
+  values.push(id);
+
+  const result = await pool.query(
+    `UPDATE vaccinations SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+    values,
+  );
+  res.json({ success: true, data: result.rows[0] });
+});

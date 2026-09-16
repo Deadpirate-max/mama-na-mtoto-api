@@ -1,53 +1,101 @@
 const pool = require("../db/pool");
-const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 
-const updateVisit = asyncHandler(async (req, res) => {
-  const { phone, number } = req.params;
-  const visitNumber = parseInt(number, 10);
+// ── Get all visits for a mother ────────────────────────────────────────────
+exports.getVisits = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query(
+    "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number ASC",
+    [id],
+  );
+  res.json({ success: true, data: result.rows });
+});
 
-  if (isNaN(visitNumber) || visitNumber < 1) {
-    throw new ApiError(400, "Visit number must be a positive integer", errorCodes.BAD_REQUEST);
-  }
+// ── Add a new visit ────────────────────────────────────────────────────────
+exports.createVisit = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const {
+    visitNumber,
+    scheduledWeek,
+    visitDate,
+    attended,
+    bpSystolic,
+    bpDiastolic,
+    weight,
+    fundalHeight,
+    urineProtein,
+    urineGlucose,
+    fetalHeartRate,
+    nextAppointment,
+    notes,
+    recordedBy,
+  } = req.body;
 
-  const motherResult = await pool.query(`SELECT id FROM mothers WHERE phone = $1`, [phone]);
-  if (motherResult.rows.length === 0) {
-    throw new ApiError(404, `No mother found with phone ${phone}`, errorCodes.NOT_FOUND);
-  }
-  const motherId = motherResult.rows[0].id;
+  const result = await pool.query(
+    `INSERT INTO anc_visits (
+      mother_id, visit_number, scheduled_week, visit_date, attended,
+      bp_systolic, bp_diastolic, weight, fundal_height,
+      urine_protein, urine_glucose, fetal_heart_rate,
+      next_appointment, notes, recorded_by, recorded_at, created_at
+    ) VALUES (
+      $1, $2, $3, $4, $5,
+      $6, $7, $8, $9,
+      $10, $11, $12,
+      $13, $14, $15, NOW(), NOW()
+    ) RETURNING *`,
+    [
+      id,
+      visitNumber || 1,
+      scheduledWeek || null,
+      visitDate || new Date().toISOString(),
+      attended !== undefined ? attended : true,
+      bpSystolic || null,
+      bpDiastolic || null,
+      weight || null,
+      fundalHeight || null,
+      urineProtein || null,
+      urineGlucose || null,
+      fetalHeartRate || null,
+      nextAppointment || null,
+      notes || "",
+      recordedBy || "Nurse",
+    ],
+  );
 
-  const allowedFields = [
-    "visit_date", "gestational_age_weeks", "blood_pressure", "weight_kg",
-    "fundal_height_cm", "fetal_heart_rate", "notes", "next_visit_date",
+  res.status(201).json({ success: true, data: result.rows[0] });
+});
+
+// ── Update a visit (kept for compatibility) ────────────────────────────────
+exports.updateVisit = asyncHandler(async (req, res) => {
+  const { id, number } = req.params;
+  const updates = req.body;
+  const allowed = [
+    "visit_date",
+    "attended",
+    "bp_systolic",
+    "bp_diastolic",
+    "weight",
+    "fundal_height",
+    "urine_protein",
+    "urine_glucose",
+    "fetal_heart_rate",
+    "next_appointment",
+    "notes",
+    "recorded_by",
   ];
-
-  const updates = {};
-  for (const field of allowedFields) {
-    if (req.body[field] !== undefined) {
-      updates[field] = req.body[field];
-    }
+  const keys = Object.keys(updates).filter((k) => allowed.includes(k));
+  if (keys.length === 0) {
+    return res.status(400).json({ success: false, error: "No valid fields" });
   }
+  const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
+  const values = keys.map((k) => updates[k]);
+  values.push(id, number);
 
-  if (Object.keys(updates).length === 0) {
-    throw new ApiError(400, "No valid fields to update", errorCodes.BAD_REQUEST);
-  }
-
-  const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 3}`);
-  const values = [motherId, visitNumber, ...Object.values(updates)];
-
-  const { rows } = await pool.query(
-    `UPDATE anc_visits
-     SET ${setClauses.join(", ")}
-     WHERE mother_id = $1 AND visit_number = $2
+  const result = await pool.query(
+    `UPDATE anc_visits SET ${setClause}, recorded_at = NOW()
+     WHERE mother_id = $${values.length - 1} AND visit_number = $${values.length}
      RETURNING *`,
     values,
   );
-
-  if (rows.length === 0) {
-    throw new ApiError(404, `Visit number ${visitNumber} not found for this mother`, errorCodes.NOT_FOUND);
-  }
-
-  res.status(200).json({ success: true, data: rows[0] });
+  res.json({ success: true, data: result.rows[0] });
 });
-
-module.exports = { updateVisit };
