@@ -117,5 +117,35 @@ const getAllAlerts = async (req, res) => {
   }
 };
 
-// ✅ Properly export both constants
-module.exports = { createDangerAlert, getAllAlerts };
+// ── Update Alert Status ───────────────────────────────────────────────────
+const updateAlert = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!["open", "acknowledged", "resolved"].includes(status)) {
+      return res.status(400).json({ success: false, error: "Invalid status" });
+    }
+
+    const result = await pool.query(
+      `UPDATE alerts 
+       SET status = $1, 
+           acknowledged_at = CASE WHEN $1 = 'acknowledged' THEN NOW() ELSE acknowledged_at END,
+           resolved_at = CASE WHEN $1 = 'resolved' THEN NOW() ELSE resolved_at END
+       WHERE id = $2
+       RETURNING *`,
+      [status, id],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Alert not found" });
+    }
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error("updateAlert error:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+module.exports = { createDangerAlert, getAllAlerts, updateAlert };
