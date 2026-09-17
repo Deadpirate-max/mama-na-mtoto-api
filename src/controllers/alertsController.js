@@ -85,7 +85,7 @@ const createDangerAlert = asyncHandler(async (req, res) => {
         mother.nurse_phone || null,
         mother.partner_phone || null,
         smsSent,
-        smsSent ? "sent" : "logged_no_sms",
+        "open",
       ],
     );
 
