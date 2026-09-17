@@ -25,10 +25,11 @@ const generateRegistrationCode = () => {
 };
 
 // ── Shared: build full mother response (camelCase) ─────────────────────────
+// ── Shared: build full mother response (camelCase) ─────────────────────────
 const buildMotherResponse = async (mother) => {
   const [visits, labs, vax, symptoms, alerts] = await Promise.all([
     pool.query(
-      "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number",
+      "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number ASC",
       [mother.id],
     ),
     pool.query(
@@ -36,7 +37,7 @@ const buildMotherResponse = async (mother) => {
       [mother.id],
     ),
     pool.query(
-      "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date NULLS LAST",
+      "SELECT * FROM vaccinations WHERE mother_id = $1 ORDER BY administration_date ASC NULLS LAST",
       [mother.id],
     ),
     pool.query(
@@ -48,6 +49,60 @@ const buildMotherResponse = async (mother) => {
       [mother.id],
     ),
   ]);
+
+  // 🛡️ Map anc_visits → camelCase for mobile app
+  const ancVisits = visits.rows.map((v) => ({
+    id: v.id,
+    visitNumber: v.visit_number,
+    scheduledWeek: v.scheduled_week,
+    date: v.visit_date,
+    attended: v.attended,
+    bpSystolic: v.bp_systolic,
+    bpDiastolic: v.bp_diastolic,
+    weight: v.weight,
+    fundalHeight: v.fundal_height,
+    urineProtein: v.urine_protein,
+    urineGlucose: v.urine_glucose,
+    fetalHeartRate: v.fetal_heart_rate,
+    nextAppointmentDate: v.next_appointment,
+    notes: v.notes,
+    recordedBy: v.recorded_by,
+    recordedAt: v.recorded_at,
+  }));
+
+  // 🛡️ Map lab_results → camelCase
+  const labResults = labs.rows.map((l) => ({
+    id: l.id,
+    name: l.name,
+    value: l.value,
+    unit: l.unit,
+    normalRange: l.normal_range,
+    status: l.status,
+    recordedAt: l.recorded_at,
+    recordedBy: l.recorded_by,
+  }));
+
+  // 🛡️ Map vaccinations → camelCase
+  const vaccinations = vax.rows.map((v) => ({
+    id: v.id,
+    name: v.name,
+    targetWeekOrAge: v.target_week_or_age,
+    dueDate: v.due_date,
+    givenDate: v.given_date,
+    given: v.given,
+    batchNumber: v.batch_number,
+    givenBy: v.given_by,
+  }));
+
+  // 🛡️ Map symptom_logs → camelCase
+  const symptomLogs = symptoms.rows.map((s) => ({
+    id: s.id,
+    symptom: s.symptom,
+    isDanger: s.is_danger,
+    subject: s.subject,
+    alertFired: s.alert_fired,
+    timestamp: s.log_date || s.created_at,
+  }));
 
   return {
     id: mother.id,
@@ -74,10 +129,10 @@ const buildMotherResponse = async (mother) => {
     partnerAge: mother.partner_age,
     partnerPhone: mother.partner_phone,
     pinSet: mother.pin_set,
-    ancVisits: visits.rows,
-    labResults: labs.rows,
-    vaccinations: vax.rows,
-    symptomLogs: symptoms.rows,
+    ancVisits,
+    labResults,
+    vaccinations,
+    symptomLogs,
     alerts: alerts.rows,
     createdAt: mother.created_at,
     lastSyncedAt: mother.updated_at,
