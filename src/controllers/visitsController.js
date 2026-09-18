@@ -1,7 +1,8 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
+const { getNextAncWeek, getDateForWeek } = require("../utils/ancSchedule");
 
-// ── 🛡️ Clinical validation helpers ────────────────────────────────────────
+// ── 🛡️ Clinical validation ───────────────────────────────────────────────
 function validateVisitData({
   bpSystolic,
   bpDiastolic,
@@ -10,31 +11,20 @@ function validateVisitData({
   fetalHeartRate,
 }) {
   const errors = [];
-
-  if (bpSystolic !== null && bpSystolic !== undefined) {
-    if (bpSystolic < 50 || bpSystolic > 250)
-      errors.push("BP systolic must be 50-250 mmHg");
-  }
-  if (bpDiastolic !== null && bpDiastolic !== undefined) {
-    if (bpDiastolic < 30 || bpDiastolic > 150)
-      errors.push("BP diastolic must be 30-150 mmHg");
-  }
-  if (weight !== null && weight !== undefined) {
-    if (weight < 30 || weight > 200) errors.push("Weight must be 30-200 kg");
-  }
-  if (fundalHeight !== null && fundalHeight !== undefined) {
-    if (fundalHeight < 5 || fundalHeight > 50)
-      errors.push("Fundal height must be 5-50 cm");
-  }
-  if (fetalHeartRate !== null && fetalHeartRate !== undefined) {
-    if (fetalHeartRate < 60 || fetalHeartRate > 220)
-      errors.push("Fetal heart rate must be 60-220 bpm");
-  }
-
+  if (bpSystolic != null && (bpSystolic < 50 || bpSystolic > 250))
+    errors.push("BP systolic must be 50-250 mmHg");
+  if (bpDiastolic != null && (bpDiastolic < 30 || bpDiastolic > 150))
+    errors.push("BP diastolic must be 30-150 mmHg");
+  if (weight != null && (weight < 30 || weight > 200))
+    errors.push("Weight must be 30-200 kg");
+  if (fundalHeight != null && (fundalHeight < 5 || fundalHeight > 50))
+    errors.push("Fundal height must be 5-50 cm");
+  if (fetalHeartRate != null && (fetalHeartRate < 60 || fetalHeartRate > 220))
+    errors.push("Fetal heart rate must be 60-220 bpm");
   return errors;
 }
 
-// ── Get all visits for a mother ────────────────────────────────────────────
+// ── Get all visits for a mother ──────────────────────────────────────────
 exports.getVisits = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const result = await pool.query(
@@ -44,7 +34,7 @@ exports.getVisits = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result.rows });
 });
 
-// ── Add a new visit ────────────────────────────────────────────────────────
+// ── Create a new visit (with auto-scheduled next appointment) ────────────
 exports.createVisit = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -65,7 +55,7 @@ exports.createVisit = asyncHandler(async (req, res) => {
     recordedBy,
   } = req.body;
 
-  // 🛡️ Validate clinical ranges
+  // 🛡️ Validate
   const errors = validateVisitData({
     bpSystolic,
     bpDiastolic,
@@ -77,64 +67,52 @@ exports.createVisit = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, errors });
   }
 
-  // 🧮 Auto-calculate gestation week if not provided
-  let finalScheduledWeek = scheduledWeek;
-  if (!finalScheduledWeek) {
-    try {
-      const m = await pool.query(
-        "SELECT lmp_date, weeks_pregnant_at_registration, registration_date FROM mothers WHERE id = $1",
-        [id],
-      );
-      if (m.rows.length > 0) {
-        const mother = m.rows[0];
-        const visitD = visitDate ? new Date(visitDate) : new Date();
+  // 🗓️ Auto-calculate current gestation week
+  let finalWeek = scheduledWeek;
+  let motherLmp = null;
+  try {
+    const m = await pool.query(
+      "SELECT lmp_date, weeks_pregnant_at_registration, registration_date FROM mothers WHERE id = $1",
+      [id],
+    );
+    if (m.rows.length > 0) {
+      const mother = m.rows[0];
+      motherLmp = mother.lmp_date;
+      const visitD = visitDate ? new Date(visitDate) : new Date();
 
-        if (mother.lmp_date) {
-          const lmp = new Date(mother.lmp_date);
-          const diffDays = Math.floor(
-            (visitD.getTime() - lmp.getTime()) / (1000 * 60 * 60 * 24),
-          );
-          finalScheduledWeek = Math.max(
-            0,
-            Math.min(42, Math.floor(diffDays / 7)),
-          );
-        } else if (
-          mother.registration_date &&
-          mother.weeks_pregnant_at_registration
-        ) {
-          const regDate = new Date(mother.registration_date);
-          const weeksSinceReg = Math.floor(
-            (visitD.getTime() - regDate.getTime()) / (7 * 24 * 60 * 60 * 1000),
-          );
-          finalScheduledWeek = Math.min(
-            42,
-            mother.weeks_pregnant_at_registration + weeksSinceReg,
-          );
-        }
-      }
-    } catch (e) {
-      console.warn("Could not auto-calculate gestation week:", e.message);
-    }
-  }
-  // 🗓️ Auto-compute the NEXT ANC appointment
-  const { getNextAncWeek, getDateForWeek } = require("../utils/ancSchedule");
-
-  let computedNextAppointment = nextAppointment || null;
-  let computedNextWeek = null;
-
-  if (finalScheduledWeek) {
-    computedNextWeek = getNextAncWeek(finalScheduledWeek);
-    if (computedNextWeek) {
-      // Fetch LMP to compute the exact date
-      const m = await pool.query("SELECT lmp_date FROM mothers WHERE id = $1", [
-        id,
-      ]);
-      if (m.rows[0]?.lmp_date) {
-        computedNextAppointment = getDateForWeek(
-          m.rows[0].lmp_date,
-          computedNextWeek,
+      if (!finalWeek && mother.lmp_date) {
+        const lmp = new Date(mother.lmp_date);
+        const diffDays = Math.floor(
+          (visitD.getTime() - lmp.getTime()) / (1000 * 60 * 60 * 24),
+        );
+        finalWeek = Math.max(0, Math.min(42, Math.floor(diffDays / 7)));
+      } else if (
+        !finalWeek &&
+        mother.registration_date &&
+        mother.weeks_pregnant_at_registration
+      ) {
+        const regDate = new Date(mother.registration_date);
+        const weeksSinceReg = Math.floor(
+          (visitD.getTime() - regDate.getTime()) / (7 * 24 * 60 * 60 * 1000),
+        );
+        finalWeek = Math.min(
+          42,
+          mother.weeks_pregnant_at_registration + weeksSinceReg,
         );
       }
+    }
+  } catch (e) {
+    console.warn("Could not auto-calculate gestation week:", e.message);
+  }
+
+  // 🗓️ Auto-compute NEXT visit
+  let computedNextWeek = null;
+  let computedNextAppointment = nextAppointment || null;
+
+  if (finalWeek) {
+    computedNextWeek = getNextAncWeek(finalWeek);
+    if (computedNextWeek && motherLmp) {
+      computedNextAppointment = getDateForWeek(motherLmp, computedNextWeek);
     }
   }
 
@@ -153,7 +131,7 @@ exports.createVisit = asyncHandler(async (req, res) => {
     [
       id,
       visitNumber || 1,
-      finalScheduledWeek || null,
+      finalWeek || null,
       visitDate || new Date().toISOString(),
       attended !== undefined ? attended : true,
       bpSystolic || null,
@@ -168,21 +146,20 @@ exports.createVisit = asyncHandler(async (req, res) => {
       recordedBy || "Nurse",
     ],
   );
+
   res.status(201).json({
     success: true,
     data: {
       ...result.rows[0],
-      nextAncWeek: computedNextWeek, // 👈 NEW
+      nextAncWeek: computedNextWeek,
     },
   });
-  res.status(201).json({ success: true, data: result.rows[0] });
 });
 
-// ── Update a visit ─────────────────────────────────────────────────────────
+// ── Update a visit ───────────────────────────────────────────────────────
 exports.updateVisit = asyncHandler(async (req, res) => {
   const { id, number } = req.params;
   const updates = req.body;
-
   const allowed = [
     "visit_date",
     "attended",
@@ -197,12 +174,10 @@ exports.updateVisit = asyncHandler(async (req, res) => {
     "notes",
     "recorded_by",
   ];
-
   const keys = Object.keys(updates).filter((k) => allowed.includes(k));
   if (keys.length === 0) {
     return res.status(400).json({ success: false, error: "No valid fields" });
   }
-
   const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
   const values = keys.map((k) => updates[k]);
   values.push(id, number);
@@ -213,6 +188,5 @@ exports.updateVisit = asyncHandler(async (req, res) => {
      RETURNING *`,
     values,
   );
-
   res.json({ success: true, data: result.rows[0] });
 });
