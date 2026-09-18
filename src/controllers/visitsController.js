@@ -116,6 +116,27 @@ exports.createVisit = asyncHandler(async (req, res) => {
       console.warn("Could not auto-calculate gestation week:", e.message);
     }
   }
+  // 🗓️ Auto-compute the NEXT ANC appointment
+  const { getNextAncWeek, getDateForWeek } = require("../utils/ancSchedule");
+
+  let computedNextAppointment = nextAppointment || null;
+  let computedNextWeek = null;
+
+  if (finalScheduledWeek) {
+    computedNextWeek = getNextAncWeek(finalScheduledWeek);
+    if (computedNextWeek) {
+      // Fetch LMP to compute the exact date
+      const m = await pool.query("SELECT lmp_date FROM mothers WHERE id = $1", [
+        id,
+      ]);
+      if (m.rows[0]?.lmp_date) {
+        computedNextAppointment = getDateForWeek(
+          m.rows[0].lmp_date,
+          computedNextWeek,
+        );
+      }
+    }
+  }
 
   const result = await pool.query(
     `INSERT INTO anc_visits (
@@ -142,12 +163,18 @@ exports.createVisit = asyncHandler(async (req, res) => {
       urineProtein || null,
       urineGlucose || null,
       fetalHeartRate || null,
-      nextAppointment || null,
+      computedNextAppointment || null,
       notes || "",
       recordedBy || "Nurse",
     ],
   );
-
+  res.status(201).json({
+    success: true,
+    data: {
+      ...result.rows[0],
+      nextAncWeek: computedNextWeek, // 👈 NEW
+    },
+  });
   res.status(201).json({ success: true, data: result.rows[0] });
 });
 
