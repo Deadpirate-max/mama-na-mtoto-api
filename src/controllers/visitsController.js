@@ -132,7 +132,7 @@ exports.createVisit = asyncHandler(async (req, res) => {
     [
       id,
       visitNumber || 1,
-      finalWeek || null,
+      finalWeek !== null && finalWeek !== undefined ? finalWeek : null,
       visitDate || new Date().toISOString(),
       attended !== undefined ? attended : true,
       bpSystolic || null,
