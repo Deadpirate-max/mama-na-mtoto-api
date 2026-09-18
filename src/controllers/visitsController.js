@@ -80,14 +80,14 @@ exports.createVisit = asyncHandler(async (req, res) => {
       motherLmp = mother.lmp_date;
       const visitD = visitDate ? new Date(visitDate) : new Date();
 
-      if (!finalWeek && mother.lmp_date) {
+      if ((finalWeek === null || finalWeek === undefined) && mother.lmp_date) {
         const lmp = new Date(mother.lmp_date);
         const diffDays = Math.floor(
           (visitD.getTime() - lmp.getTime()) / (1000 * 60 * 60 * 24),
         );
         finalWeek = Math.max(0, Math.min(42, Math.floor(diffDays / 7)));
       } else if (
-        !finalWeek &&
+        (finalWeek === null || finalWeek === undefined) &&
         mother.registration_date &&
         mother.weeks_pregnant_at_registration
       ) {
@@ -109,7 +109,8 @@ exports.createVisit = asyncHandler(async (req, res) => {
   let computedNextWeek = null;
   let computedNextAppointment = nextAppointment || null;
 
-  if (finalWeek) {
+  // 🛡️ Use explicit null check — `0` is a valid week (just very early)
+  if (finalWeek !== null && finalWeek !== undefined) {
     computedNextWeek = getNextAncWeek(finalWeek);
     if (computedNextWeek && motherLmp) {
       computedNextAppointment = getDateForWeek(motherLmp, computedNextWeek);
