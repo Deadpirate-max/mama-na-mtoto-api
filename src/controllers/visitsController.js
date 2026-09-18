@@ -48,7 +48,6 @@ exports.getVisits = asyncHandler(async (req, res) => {
 exports.createVisit = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  // 🛡️ Destructure with defaults
   const {
     visitNumber,
     scheduledWeek,
@@ -78,6 +77,46 @@ exports.createVisit = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, errors });
   }
 
+  // 🧮 Auto-calculate gestation week if not provided
+  let finalScheduledWeek = scheduledWeek;
+  if (!finalScheduledWeek) {
+    try {
+      const m = await pool.query(
+        "SELECT lmp_date, weeks_pregnant_at_registration, registration_date FROM mothers WHERE id = $1",
+        [id],
+      );
+      if (m.rows.length > 0) {
+        const mother = m.rows[0];
+        const visitD = visitDate ? new Date(visitDate) : new Date();
+
+        if (mother.lmp_date) {
+          const lmp = new Date(mother.lmp_date);
+          const diffDays = Math.floor(
+            (visitD.getTime() - lmp.getTime()) / (1000 * 60 * 60 * 24),
+          );
+          finalScheduledWeek = Math.max(
+            0,
+            Math.min(42, Math.floor(diffDays / 7)),
+          );
+        } else if (
+          mother.registration_date &&
+          mother.weeks_pregnant_at_registration
+        ) {
+          const regDate = new Date(mother.registration_date);
+          const weeksSinceReg = Math.floor(
+            (visitD.getTime() - regDate.getTime()) / (7 * 24 * 60 * 60 * 1000),
+          );
+          finalScheduledWeek = Math.min(
+            42,
+            mother.weeks_pregnant_at_registration + weeksSinceReg,
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("Could not auto-calculate gestation week:", e.message);
+    }
+  }
+
   const result = await pool.query(
     `INSERT INTO anc_visits (
       mother_id, visit_number, scheduled_week, visit_date, attended,
@@ -93,7 +132,7 @@ exports.createVisit = asyncHandler(async (req, res) => {
     [
       id,
       visitNumber || 1,
-      scheduledWeek || null,
+      finalScheduledWeek || null,
       visitDate || new Date().toISOString(),
       attended !== undefined ? attended : true,
       bpSystolic || null,
