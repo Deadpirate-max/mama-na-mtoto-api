@@ -311,8 +311,9 @@ const recoverAccount = asyncHandler(async (req, res) => {
 });
 
 // ── Account Recovery — Step 2 (Confirm) ──────────────────────────────────────
+// ── Account Recovery — Step 2 (Confirm + Set New PIN) ────────────────────────
 const confirmRecovery = asyncHandler(async (req, res) => {
-  const { recoveryToken, otp, newPhone } = req.body;
+  const { recoveryToken, otp, newPhone, newPin } = req.body;
 
   // Verify recovery token
   let tokenData;
@@ -360,10 +361,24 @@ const confirmRecovery = asyncHandler(async (req, res) => {
 
   const oldPhone = tokenData.oldPhone;
 
-  // Update phone number and reset PIN (mother must set a new PIN on sign in)
+  // 🔐 Hash the new PIN if provided
+  let hashedPin = null;
+  let pinSet = false;
+
+  if (newPin && /^\d{4}$/.test(String(newPin))) {
+    const salt = await bcrypt.genSalt(10);
+    hashedPin = await bcrypt.hash(String(newPin), salt);
+    pinSet = true;
+  }
+
+  // Update phone + new PIN
   await pool.query(
-    `UPDATE mothers SET phone = $1, pin_set = FALSE, pin_hash = NULL WHERE phone = $2`,
-    [normalizedNew, oldPhone],
+    `UPDATE mothers 
+     SET phone = $1, 
+         pin_hash = $2, 
+         pin_set = $3 
+     WHERE phone = $4`,
+    [normalizedNew, hashedPin, pinSet, oldPhone],
   );
 
   // Mark OTP as used
@@ -371,7 +386,7 @@ const confirmRecovery = asyncHandler(async (req, res) => {
     rows[0].id,
   ]);
 
-  // Log the phone change
+  // Log the phone change (non-fatal if table doesn't exist)
   try {
     await pool.query(
       `INSERT INTO phone_change_log (mother_id, old_phone, new_phone, method)
@@ -379,19 +394,20 @@ const confirmRecovery = asyncHandler(async (req, res) => {
       [oldPhone, normalizedNew],
     );
   } catch (logError) {
-    // Log table may not exist yet — not fatal
     console.warn("Could not log phone change:", logError.message);
   }
 
-  console.log(`✅ Account recovered: ${oldPhone} → ${normalizedNew}`);
+  console.log(
+    `✅ Account recovered: ${oldPhone} → ${normalizedNew} (pin_set: ${pinSet})`,
+  );
 
   res.status(200).json({
     success: true,
-    message:
-      "Phone number updated successfully. Please sign in with your new number and set a new PIN.",
+    message: pinSet
+      ? "Phone and PIN updated. Please sign in with your new number."
+      : "Phone number updated. Please sign in and set a new PIN.",
   });
 });
-
 // ── Single clean module.exports ───────────────────────────────────────────────
 // FIX 1: All functions now defined as const above — none are undefined here
 module.exports = {
