@@ -1,6 +1,7 @@
 const pool = require("../db/pool");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
+const { calculateRisk } = require("../utils/riskEngine");
 
 // ── Normalize Kenyan phone ─────────────────────────────────────────────────
 const normalizePhone = (phone) => {
@@ -24,8 +25,7 @@ const generateRegistrationCode = () => {
   return out;
 };
 
-// ── Shared: build full mother response (camelCase) ─────────────────────────
-// ── Shared: build full mother response (camelCase) ─────────────────────────
+// ── Shared: build full mother response (camelCase) + risk score ────────────
 const buildMotherResponse = async (mother) => {
   const [visits, labs, vax, symptoms, alerts] = await Promise.all([
     pool.query(
@@ -50,7 +50,7 @@ const buildMotherResponse = async (mother) => {
     ),
   ]);
 
-  // 🛡️ Map anc_visits → camelCase for mobile app
+  // Map anc_visits → camelCase
   const ancVisits = visits.rows.map((v) => ({
     id: v.id,
     visitNumber: v.visit_number,
@@ -70,7 +70,7 @@ const buildMotherResponse = async (mother) => {
     recordedAt: v.recorded_at,
   }));
 
-  // 🛡️ Map lab_results → camelCase
+  // Map lab_results → camelCase
   const labResults = labs.rows.map((l) => ({
     id: l.id,
     name: l.name,
@@ -82,7 +82,7 @@ const buildMotherResponse = async (mother) => {
     recordedBy: l.recorded_by,
   }));
 
-  // 🛡️ Map vaccinations → camelCase
+  // Map vaccinations → camelCase
   const vaccinations = vax.rows.map((v) => ({
     id: v.id,
     name: v.name,
@@ -94,7 +94,7 @@ const buildMotherResponse = async (mother) => {
     givenBy: v.given_by,
   }));
 
-  // 🛡️ Map symptom_logs → camelCase
+  // Map symptom_logs → camelCase
   const symptomLogs = symptoms.rows.map((s) => ({
     id: s.id,
     symptom: s.symptom,
@@ -104,7 +104,8 @@ const buildMotherResponse = async (mother) => {
     timestamp: s.log_date || s.created_at,
   }));
 
-  return {
+  // 🛡️ Build the response object FIRST (so risk engine sees full arrays)
+  const motherResponse = {
     id: mother.id,
     name: mother.name,
     age: mother.age,
@@ -136,6 +137,18 @@ const buildMotherResponse = async (mother) => {
     alerts: alerts.rows,
     createdAt: mother.created_at,
     lastSyncedAt: mother.updated_at,
+  };
+
+  // 🧠 Compute risk score on the FULL response
+  const risk = calculateRisk(motherResponse);
+
+  return {
+    ...motherResponse,
+    riskLevel: risk.level,
+    riskScore: risk.score,
+    riskFactors: risk.factors,
+    riskSummary: risk.summary,
+    riskAlertMessage: risk.nurseAlert ? risk.alertMessage : null,
   };
 };
 
@@ -211,7 +224,7 @@ const createMother = asyncHandler(async (req, res) => {
     computedEdd = lmpDate.toISOString().split("T")[0];
   }
 
-  // 🚀 Insert the mother
+  // Insert the mother
   const result = await pool.query(
     `INSERT INTO mothers (
       name, phone, age, weeks_pregnant_at_registration, county, id_number,
