@@ -71,6 +71,19 @@ const createDangerAlert = asyncHandler(async (req, res) => {
         console.error("SMS send failed:", smsError.message);
       }
     }
+    // Send WhatsApp (non-blocking, fires in parallel with SMS)
+    if (mother.nurse_phone) {
+      sendWhatsAppAlert(mother.nurse_phone, {
+        motherName: mother.name || phone,
+        symptom: message,
+        severity: severity || "critical",
+        riskLevel: "high", // or compute from mother's data
+        recommendation:
+          severity === "critical"
+            ? "Call mother immediately and prepare for referral."
+            : "Follow up within 1 hour.",
+      });
+    }
 
     await pool.query(
       `INSERT INTO alerts
@@ -103,6 +116,115 @@ const createDangerAlert = asyncHandler(async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+const AfricasTalking = require("africastalking");
+
+// A dedicated function for testing SMS
+const sendTestSMS = async (phone, message) => {
+  try {
+    // 1. Initialize the SDK with credentials from environment variables.
+    //    For sandbox, the username MUST be 'sandbox'.
+    const AT = AfricasTalking({
+      apiKey: process.env.AT_API_KEY,
+      username: process.env.AT_USERNAME, // Should be 'sandbox' in Railway
+    });
+
+    // 2. Get the SMS service.
+    const sms = AT.SMS;
+
+    // 3. Send the message.
+    const options = {
+      to: [phone],
+      message: message,
+      // In the sandbox, you often use "Sandbox" or your sandbox shortcode.
+      // If you leave it out, it may use a default. It's safer to specify.
+      // Check your AT dashboard for the exact sandbox sender ID if needed.
+      // For this test, we'll omit it first; if it fails, we'll add it.
+    };
+
+    console.log(`📤 Sending test SMS to ${phone}...`);
+    const response = await sms.send(options);
+    console.log("✅ AT Send Response:", JSON.stringify(response, null, 2));
+
+    return { success: true, data: response };
+  } catch (error) {
+    console.error("❌ AT Send Error:", error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// Temporary test route
+exports.testSendSms = async (req, res) => {
+  const { phone, message } = req.body;
+  if (!phone || !message) {
+    return res
+      .status(400)
+      .json({ success: false, error: "phone and message are required" });
+  }
+  const result = await sendTestSMS(phone, message);
+  res.json(result);
+};
+// ── Send WhatsApp Alert via Africa's Talking ───────────────────────────────
+const sendWhatsAppAlert = async (phone, alertData) => {
+  const { motherName, symptom, severity, riskLevel, recommendation } =
+    alertData;
+
+  // Only attempt if WhatsApp Product ID is configured
+  if (!process.env.AT_WHATSAPP_PRODUCT_ID) {
+    console.log("⚠️ WhatsApp skipped — AT_WHATSAPP_PRODUCT_ID not set");
+    return false;
+  }
+
+  const normalizedPhone = phone.startsWith("+") ? phone.slice(1) : phone;
+
+  const message =
+    `🚨 *MAMA NA MTOTO+ ALERT*\n\n` +
+    `*Patient:* ${motherName}\n` +
+    `*Symptom:* ${symptom}\n` +
+    `*Severity:* ${severity?.toUpperCase()}\n` +
+    `*Risk Level:* ${(riskLevel || "unknown").toUpperCase()}\n\n` +
+    `*Recommended action:*\n${recommendation || "Assess mother immediately."}\n\n` +
+    `_Please respond immediately._\n` +
+    `_Mama na Mtoto+ — PPH Foundation_`;
+
+  try {
+    const response = await fetch(
+      "https://api.africastalking.com/version1/messaging/whatsapp",
+      {
+        method: "POST",
+        headers: {
+          apiKey: process.env.AT_API_KEY,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          username: process.env.AT_USERNAME,
+          productId: process.env.AT_WHATSAPP_PRODUCT_ID,
+          channel: "whatsapp",
+          to: normalizedPhone,
+          message: {
+            type: "text",
+            text: { body: message },
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.warn(
+        `⚠️ WhatsApp failed (${response.status}):`,
+        err.slice(0, 200),
+      );
+      return false;
+    }
+
+    console.log(`✅ WhatsApp alert sent to ${phone}`);
+    return true;
+  } catch (error) {
+    console.warn(`⚠️ WhatsApp error for ${phone}:`, error.message);
+    return false;
+  }
+};
 
 // ── Get All Alerts (bulletproof, no JOIN dependency) ──────────────────────
 const getAllAlerts = async (req, res) => {

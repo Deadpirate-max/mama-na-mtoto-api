@@ -4,6 +4,7 @@ const {
   createDangerAlert,
   getAllAlerts,
   updateAlert,
+  testSendSms,
 } = require("../controllers/alertsController");
 
 const router = express.Router();
@@ -21,5 +22,6 @@ const dangerAlertSchema = {
 router.get("/", getAllAlerts);
 router.patch("/:id", updateAlert); // <-- NEW
 router.post("/danger", validate(dangerAlertSchema), createDangerAlert);
+router.post("/test-sms", testSendSms);
 
 module.exports = router;
