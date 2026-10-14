@@ -189,7 +189,16 @@ function calculateRisk(profile) {
     ? `Risk elevated to ${level.toUpperCase()} (score ${score}). Key: ${topFactors}.`
     : "";
 
-  return { level, score, factors, nurseAlert, alertMessage };
+  const summary =
+    level === "critical"
+      ? "CRITICAL RISK — Immediate medical attention required"
+      : level === "high"
+        ? "HIGH RISK — Close monitoring and nurse follow-up essential"
+        : level === "medium"
+          ? "MEDIUM RISK — Enhanced monitoring recommended"
+          : "LOW RISK — Standard antenatal care protocol";
+
+  return { level, score, factors, nurseAlert, alertMessage, summary };
 }
 
 module.exports = { calculateRisk };
