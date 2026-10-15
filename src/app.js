@@ -9,7 +9,7 @@ const registrationsRoutes = require("./routes/registrationsRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 const chvRoutes = require("./routes/chvRoutes");
-
+const chatRoutes = require("./routes/chatRoutes");
 const app = express();
 
 // ── Security & parsing (must come before routes) ──────────────────────────────
@@ -22,9 +22,10 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
-app.options("*", cors()); 
+app.options("*", cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use("/api/chat", chatRoutes);
 
 // ── Health checks ─────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => {
