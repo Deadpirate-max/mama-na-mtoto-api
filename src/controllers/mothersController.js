@@ -459,14 +459,19 @@ const getMotherById = asyncHandler(async (req, res) => {
 
 // ── Get All Mothers ───────────────────────────────────────────────────────
 const getAllMothers = asyncHandler(async (req, res) => {
-  const nursePhone = req.chv?.phone;
+  // Assuming your JWT payload for CHVs includes a facility_code
+  const facilityCode = req.chv?.facility_code;
+  const nurseId = req.chv?.id;
+
   let query = "SELECT * FROM mothers";
   const params = [];
 
-  if (nursePhone) {
-    query += " WHERE nurse_phone = $1";
-    params.push(nursePhone);
+  // Filter by facility code (safer for a dashboard)
+  if (facilityCode) {
+    query += " WHERE facility_code = $1";
+    params.push(facilityCode);
   }
+
   query += " ORDER BY created_at DESC";
 
   const result = await pool.query(query, params);
