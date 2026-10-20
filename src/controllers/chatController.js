@@ -1,6 +1,7 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { ApiError, errorCodes } = require("../utils/ApiError");
+const { decrypt, hashForSearch } = require("../utils/encryption");
 
 // Load DeepSeek key from environment
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
@@ -131,16 +132,14 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
   // Load mother's profile for context
   let mother = null;
   try {
+    const phoneHash = hashForSearch(phone);
     const { rows } = await pool.query(
-      "SELECT * FROM mothers WHERE phone = $1 LIMIT 1",
-      [phone],
+      "SELECT * FROM mothers WHERE phone_hash = $1 LIMIT 1",
+      [phoneHash],
     );
     mother = rows[0];
   } catch (dbErr) {
-    console.warn(
-      "Could not fetch mother profile (table might be missing):",
-      dbErr.message,
-    );
+    console.warn("Could not fetch mother profile:", dbErr.message);
   }
 
   // Fetch related data for the system prompt
@@ -170,18 +169,18 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
   }
 
   const profile = {
-    name: mother?.name || "Mama",
+    // 👇 DECRYPT NAME AND NURSE NAME FOR THE AI
+    name: mother?.name ? decrypt(mother.name) : "Mama",
     weeksPregnantAtRegistration: mother?.weeks_pregnant_at_registration,
     edd: mother?.edd,
     county: mother?.county,
     conditions: Array.isArray(mother?.conditions) ? mother.conditions : [],
-    nurseName: mother?.nurse_name,
+    nurseName: mother?.nurse_name ? decrypt(mother.nurse_name) : null, // If nurse name is encrypted
     facilityName: mother?.facility_name,
     riskLevel: mother?.risk_level || "low",
     labResults,
     symptomLogs,
   };
-
   // Trim history to last 10 messages to control token cost
   const trimmedHistory = (history || [])
     .slice(-10)
