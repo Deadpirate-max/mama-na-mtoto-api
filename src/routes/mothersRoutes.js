@@ -15,8 +15,8 @@ const {
   getVaccinations,
   createVaccination,
 } = require("../controllers/vaccinationsController");
-const { requireChvAuth } = require("../middleware/chvAuth");
 const { requireMotherAuth } = require("../middleware/motherAuth"); // 👈 NEW
+const { authenticate, facilityIsolation } = require("../middleware/chvAuth");
 
 const router = express.Router();
 
@@ -55,7 +55,6 @@ const createMotherSchema = {
 // ── CHV Dashboard (UUID-based, CHV auth) ──────────────────────────────────
 router.get("/search", requireChvAuth, searchMothers);
 router.get("/id/:id", requireChvAuth, getMotherById);
-router.get("/", requireChvAuth, getAllMothers);
 
 router.get("/:id/visits", requireChvAuth, getVisits);
 router.post("/:id/visits", requireChvAuth, createVisit);
@@ -71,5 +70,7 @@ router.post("/", validate(createMotherSchema), createMother);
 router.get("/:phone", requireMotherAuth, getMotherByPhone);
 router.put("/:phone", requireMotherAuth, updateMother);
 router.post("/upload-photo", requireMotherAuth, uploadProfilePhoto);
+router.get("/", authenticate, facilityIsolation, getAllMothers);
+router.get("/search", authenticate, facilityIsolation, searchMothers);
 
 module.exports = router;

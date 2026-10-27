@@ -459,17 +459,13 @@ const getMotherById = asyncHandler(async (req, res) => {
 
 // ── Get All Mothers ───────────────────────────────────────────────────────
 const getAllMothers = asyncHandler(async (req, res) => {
-  // Assuming your JWT payload for CHVs includes a facility_code
-  const facilityCode = req.chv?.facility_code;
-  const nurseId = req.chv?.id;
-
-  let query = "SELECT * FROM mothers";
+  let query = "SELECT * FROM mothers WHERE 1=1";
   const params = [];
 
-  // Filter by facility code (safer for a dashboard)
-  if (facilityCode) {
-    query += " WHERE facility_code = $1";
-    params.push(facilityCode);
+  // 👇 If the middleware set a facilityFilter (meaning user is not super_admin)
+  if (req.facilityFilter) {
+    query += " AND facility_code = $1";
+    params.push(req.facilityFilter);
   }
 
   query += " ORDER BY created_at DESC";
