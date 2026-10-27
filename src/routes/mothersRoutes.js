@@ -1,76 +1,35 @@
 const express = require("express");
-const { validate } = require("../middleware/validate");
-const {
-  createMother,
-  getMotherByPhone,
-  getMotherById,
-  updateMother,
-  uploadProfilePhoto,
-  getAllMothers,
-  searchMothers,
-} = require("../controllers/mothersController");
-const { getVisits, createVisit } = require("../controllers/visitsController");
-const { getLabs, createLab } = require("../controllers/labsController");
-const {
-  getVaccinations,
-  createVaccination,
-} = require("../controllers/vaccinationsController");
-const { requireMotherAuth } = require("../middleware/motherAuth"); // 👈 NEW
-const { authenticate, facilityIsolation } = require("../middleware/chvAuth");
-
 const router = express.Router();
 
-const createMotherSchema = {
-  phone: { required: true, type: "string", pattern: /^\+?[1-9]\d{7,14}$/ },
-  name: { type: "string" },
-  age: { type: "number" },
-  id_number: { type: "string" },
-  nationalId: { type: "string" },
-  county: { type: "string" },
-  village: { type: "string" },
-  address: { type: "string" },
-  weeks_pregnant: { type: "number" },
-  weeksPregnantAtRegistration: { type: "number" },
-  registration_date: { type: "string" },
-  edd: { type: "string" },
-  lmp_date: { type: "string" },
-  lmp: { type: "string" },
-  gravida: {},
-  para: {},
-  parity: {},
-  nurse_name: { type: "string" },
-  nurse_phone: { type: "string" },
-  facility_name: { type: "string" },
-  facility_code: { type: "string" },
-  partner_name: { type: "string" },
-  partner_age: { type: "number" },
-  partner_phone: { type: "string" },
-  conditions: {},
-  profile_photo: { type: "string" },
-  blood_group: { type: "string" },
-  emergency_contact: { type: "string" },
-  nextAppointment: {},
-};
+// 1. 👇 UPDATE THE IMPORT to use the new functions
+const {
+  authenticate,
+  facilityIsolation,
+  requireRole,
+} = require("../middleware/chvAuth");
+const {
+  createMother,
+  updateMother,
+  getMotherByPhone,
+  getMotherById,
+  getAllMothers,
+  searchMothers,
+  uploadProfilePhoto,
+} = require("../controllers/mothersController");
 
-// ── CHV Dashboard (UUID-based, CHV auth) ──────────────────────────────────
-router.get("/search", requireChvAuth, searchMothers);
-router.get("/id/:id", requireChvAuth, getMotherById);
+// 2. 👇 UPDATE THE ROUTE DEFINITIONS
+// Use 'authenticate' instead of 'requireChvAuth'
+// Add 'facilityIsolation' so nurses only see their own facility's mothers
 
-router.get("/:id/visits", requireChvAuth, getVisits);
-router.post("/:id/visits", requireChvAuth, createVisit);
-
-router.get("/:id/labs", requireChvAuth, getLabs);
-router.post("/:id/labs", requireChvAuth, createLab);
-
-router.get("/:id/vaccinations", requireChvAuth, getVaccinations);
-router.post("/:id/vaccinations", requireChvAuth, createVaccination);
-
-// ── Mobile App (Phone-based, MOTHER auth) ────────────────────────────────
-router.post("/", validate(createMotherSchema), createMother);
-router.get("/:phone", requireMotherAuth, getMotherByPhone);
-router.put("/:phone", requireMotherAuth, updateMother);
-router.post("/upload-photo", requireMotherAuth, uploadProfilePhoto);
 router.get("/", authenticate, facilityIsolation, getAllMothers);
+
+// Line 56 from your error is likely this one:
 router.get("/search", authenticate, facilityIsolation, searchMothers);
+
+router.get("/id/:id", authenticate, facilityIsolation, getMotherById);
+router.get("/phone/:phone", authenticate, getMotherByPhone);
+router.post("/", authenticate, createMother);
+router.put("/:phone", authenticate, updateMother);
+router.post("/upload-photo", authenticate, uploadProfilePhoto);
 
 module.exports = router;
