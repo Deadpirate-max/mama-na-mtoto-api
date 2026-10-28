@@ -37,7 +37,7 @@ const nurseLogin = asyncHandler(async (req, res) => {
   // Decrypt PII for the dashboard response
   const safeNurse = {
     id: nurse.id,
-    name: decrypt(nurse.full_name),
+    name: decrypt(nurse.name),
     phone: decrypt(nurse.phone),
     facility: nurse.facility_code,
     role: nurse.role,
@@ -64,7 +64,7 @@ const createNurse = asyncHandler(async (req, res) => {
 
   await pool.query(
     `INSERT INTO nurses (
-      full_name, phone, phone_hash, email, knc_number, facility_code, role, pin_hash, pin_set, status
+      name, phone, phone_hash, email, knc_number, facility_code, role, pin_hash, pin_set, status
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, 'active')`,
     [
       encrypt(fullName),
