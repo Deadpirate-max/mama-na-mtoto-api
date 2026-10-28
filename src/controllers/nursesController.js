@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { ApiError, errorCodes } = require("../utils/ApiError");
-
+const JWT_SECRET = process.env.JWT_SECRET || "mama_na_mtoto_secret_2026";
 // ── 1. Login ────────────────────────────────────────────────────────────────
 const nurseLogin = asyncHandler(async (req, res) => {
   const { phone, pin } = req.body;
@@ -45,7 +45,7 @@ const nurseLogin = asyncHandler(async (req, res) => {
 
   const token = jwt.sign(
     { nurseId: nurse.id, role: nurse.role, facility_code: nurse.facility_code },
-    process.env.JWT_SECRET,
+    JWT_SECRET,
     { expiresIn: "12h" },
   );
 
