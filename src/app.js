@@ -49,7 +49,7 @@ app.use("/api/alerts", alertsRoutes);
 app.use("/api/nurses", nursesRoutes);
 app.use("/api/registrations", registrationsRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/chv", nursesRoutes);
+app.use("/api/chv", chvRoutes);
 
 // ── Error handling (must be last) ─────────────────────────────────────────────
 app.use(notFound);
