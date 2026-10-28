@@ -1,10 +1,8 @@
 const jwt = require("jsonwebtoken");
 const pool = require("../db/pool");
 
-// Ensure JWT_SECRET exists
 const JWT_SECRET = process.env.JWT_SECRET || "mama_na_mtoto_secret_2026";
 
-// 1. Authenticate & Check Live Database Status
 exports.authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -15,16 +13,36 @@ exports.authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, JWT_SECRET);
 
-    // 🔐 SECURITY UPGRADE: Fetch live status from DB
-    // We do not trust the token for role/facility because they might have changed
+    // 1. Verify JWT
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      console.error("❌ JWT Verify failed:", err.message);
+      return res
+        .status(401)
+        .json({ success: false, error: "Invalid or expired token (JWT)" });
+    }
+
+    // 2. Find the ID in the payload (handles both 'id' and 'nurseId')
+    const nurseId = decoded.nurseId || decoded.id;
+
+    if (!nurseId) {
+      console.error("❌ Token payload missing id/nurseId:", decoded);
+      return res
+        .status(401)
+        .json({ success: false, error: "Token missing user ID" });
+    }
+
+    // 3. Fetch live status from DB
     const { rows } = await pool.query(
       "SELECT id, role, facility_code, status FROM nurses WHERE id = $1",
-      [decoded.nurseId],
+      [nurseId],
     );
 
     if (rows.length === 0) {
+      console.error(`❌ No nurse found in DB for ID: ${nurseId}`);
       return res
         .status(401)
         .json({ success: false, error: "User no longer exists" });
@@ -32,14 +50,13 @@ exports.authenticate = async (req, res, next) => {
 
     const nurse = rows[0];
 
-    // Block suspended or pending accounts immediately
     if (nurse.status !== "active") {
       return res
         .status(403)
         .json({ success: false, error: "Account is not active" });
     }
 
-    // Attach the live DB record to req.nurse (instead of req.chv)
+    // 4. Attach to request
     req.nurse = {
       id: nurse.id,
       role: nurse.role,
@@ -48,9 +65,10 @@ exports.authenticate = async (req, res, next) => {
 
     next();
   } catch (err) {
+    console.error("❌ Auth middleware error:", err.message);
     return res
-      .status(401)
-      .json({ success: false, error: "Invalid or expired token" });
+      .status(500)
+      .json({ success: false, error: "Internal server error during auth" });
   }
 };
 
