@@ -26,7 +26,7 @@ const generateRegistrationCode = () => {
   return out;
 };
 
-// ── Helper to decrypt a mother row before returning it ─────────────────────
+// ── Helper: Decrypt a mother row safely ────────────────────────────────────
 const decryptMotherRow = (mother) => {
   if (!mother) return null;
   return {
@@ -39,9 +39,10 @@ const decryptMotherRow = (mother) => {
   };
 };
 
-// ── Shared: build full mother response + risk score ────────────────────────
+// ── Shared: Build full mother response + risk score ────────────────────────
 const buildMotherResponse = async (rawMother) => {
   const mother = decryptMotherRow(rawMother);
+  if (!mother) return null;
 
   const [visits, labs, vax, symptoms, alerts] = await Promise.all([
     pool.query(
@@ -203,12 +204,10 @@ const createMother = asyncHandler(async (req, res) => {
 
   const normalizedPhone = normalizePhone(phone);
 
-  // 👇 Blind Index Hashes for searching
   const phoneHash = hashForSearch(normalizedPhone);
   const nameHash = hashForSearch(mappedName.trim().toLowerCase());
   const idHash = hashForSearch(mappedIdNumber);
 
-  // 👇 Encrypt PII
   const encryptedName = encrypt(mappedName);
   const encryptedPhone = encrypt(normalizedPhone);
   const encryptedIdNumber = encrypt(mappedIdNumber);
@@ -256,9 +255,7 @@ const createMother = asyncHandler(async (req, res) => {
       $19, $20, $21, $22, $23, $24, $25, $26, NOW(), NOW()
     )
     ON CONFLICT (phone_hash) DO UPDATE SET
-      name = EXCLUDED.name,
-      phone = EXCLUDED.phone,
-      updated_at = NOW()
+      name = EXCLUDED.name, phone = EXCLUDED.phone, updated_at = NOW()
     RETURNING id, phone, name`,
     [
       encryptedName,
@@ -291,15 +288,13 @@ const createMother = asyncHandler(async (req, res) => {
   );
 
   const motherId = result.rows[0].id;
-
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
   await pool.query(
     `INSERT INTO registration_codes 
      (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at, used)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
-     ON CONFLICT (code) DO NOTHING`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE) ON CONFLICT (code) DO NOTHING`,
     [
       regCode,
       normalizedPhone,
@@ -370,7 +365,7 @@ const updateMother = async (req, res) => {
       if (
         ["name", "id_number", "partner_name", "partner_phone"].includes(key)
       ) {
-        filteredUpdates[key] = encrypt(String(updates[key])); // 👈 Encrypt PII
+        filteredUpdates[key] = encrypt(String(updates[key]));
       } else if (key === "conditions") {
         filteredUpdates[key] = JSON.stringify(updates[key]);
       } else {
@@ -401,7 +396,7 @@ const updateMother = async (req, res) => {
   values.push(phoneHash);
 
   try {
-    const query = `UPDATE mothers SET ${setClause}, updated_at = NOW() WHERE phone_hash = $${keys.length + 1} RETURNING id, phone`;
+    const query = `UPDATE mothers SET ${setClause}, updated_at = NOW() WHERE phone_hash = $${keys.length + 1} RETURNING id`;
     const result = await pool.query(query, values);
     if (result.rows.length === 0)
       return res
@@ -423,11 +418,7 @@ const getMotherByPhone = asyncHandler(async (req, res) => {
     [phoneHash],
   );
   if (rows.length === 0)
-    throw new ApiError(
-      404,
-      `No mother found with phone ${normalizedPhone}`,
-      errorCodes.NOT_FOUND,
-    );
+    throw new ApiError(404, `No mother found`, errorCodes.NOT_FOUND);
 
   const data = await buildMotherResponse(rows[0]);
   res.status(200).json({ success: true, data });
@@ -436,40 +427,41 @@ const getMotherByPhone = asyncHandler(async (req, res) => {
 // ── Get Mother by ID ───────────────────────────────────────────────────────
 const getMotherById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-
   const uuidRegex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(id)) {
-    throw new ApiError(400, "Invalid mother ID format", errorCodes.BAD_REQUEST);
-  }
+  if (!uuidRegex.test(id))
+    throw new ApiError(400, "Invalid ID", errorCodes.BAD_REQUEST);
 
   const { rows } = await pool.query("SELECT * FROM mothers WHERE id = $1", [
     id,
   ]);
   if (rows.length === 0)
+    throw new ApiError(404, `No mother found`, errorCodes.NOT_FOUND);
+
+  // 👇 ENFORCE FACILITY ISOLATION
+  if (req.facilityFilter && rows[0].facility_code !== req.facilityFilter) {
     throw new ApiError(
-      404,
-      `No mother found with id ${id}`,
-      errorCodes.NOT_FOUND,
+      403,
+      "Unauthorized to view this patient",
+      errorCodes.FORBIDDEN,
     );
+  }
 
   const data = await buildMotherResponse(rows[0]);
   res.status(200).json({ success: true, data });
 });
 
-// ── Get All Mothers ───────────────────────────────────────────────────────
+// ── Get All Mothers (Enforces Facility Isolation) ─────────────────────────
 const getAllMothers = asyncHandler(async (req, res) => {
   let query = "SELECT * FROM mothers WHERE 1=1";
   const params = [];
 
-  // 👇 If the middleware set a facilityFilter (meaning user is not super_admin)
   if (req.facilityFilter) {
     query += " AND facility_code = $1";
     params.push(req.facilityFilter);
   }
 
   query += " ORDER BY created_at DESC";
-
   const result = await pool.query(query, params);
 
   const mothers = result.rows.map((m) => {
@@ -494,18 +486,17 @@ const getAllMothers = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: mothers });
 });
 
-// ── Search Mothers ─────────────────────────────────────────────────────────
+// ── Search Mothers (Enforces Facility Isolation) ──────────────────────────
 const searchMothers = asyncHandler(async (req, res) => {
   const q = (req.query.q || "").trim();
-  const nursePhone = req.chv?.phone;
-
-  let query = "SELECT * FROM mothers";
+  let query = "SELECT * FROM mothers WHERE 1=1";
   const params = [];
   const conditions = [];
 
-  if (nursePhone) {
-    conditions.push(`nurse_phone = $${params.length + 1}`);
-    params.push(nursePhone);
+  // 👇 STRICT FACILITY ISOLATION
+  if (req.facilityFilter) {
+    conditions.push(`facility_code = $${params.length + 1}`);
+    params.push(req.facilityFilter);
   }
 
   if (q) {
@@ -528,7 +519,7 @@ const searchMothers = asyncHandler(async (req, res) => {
     params.push(phoneHash, idHash, nameHash);
   }
 
-  if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
+  if (conditions.length > 0) query += " AND " + conditions.join(" AND ");
   query += " ORDER BY created_at DESC LIMIT 50";
 
   const result = await pool.query(query, params);
@@ -570,14 +561,12 @@ const uploadProfilePhoto = async (req, res) => {
     const { error } = await supabase.storage
       .from("profiles")
       .upload(filename, buffer, { contentType: "image/jpeg", upsert: true });
-
     if (error)
       return res.status(500).json({ success: false, error: error.message });
 
     const { data: urlData } = supabase.storage
       .from("profiles")
       .getPublicUrl(filename);
-
     await pool.query(
       "UPDATE mothers SET profile_photo_url = $1 WHERE phone_hash = $2",
       [urlData.publicUrl, phoneHash],
@@ -589,7 +578,6 @@ const uploadProfilePhoto = async (req, res) => {
   }
 };
 
-// ── Export ALL functions ───────────────────────────────────────────────────
 module.exports = {
   createMother,
   updateMother,

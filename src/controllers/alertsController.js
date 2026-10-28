@@ -1,14 +1,20 @@
 const pool = require("../db/pool");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
+const { encrypt, decrypt, hashForSearch } = require("../utils/encryption"); // 👈 Added imports
 const AfricasTalking = require("africastalking");
 
 // Initialize AT once — used for both SMS and WhatsApp
-const AT = AfricasTalking({
-  apiKey: process.env.AT_API_KEY,
-  username: process.env.AT_USERNAME,
-});
-const sms = AT.SMS;
+let sms = null;
+try {
+  const AT = AfricasTalking({
+    apiKey: process.env.AT_API_KEY,
+    username: process.env.AT_USERNAME,
+  });
+  sms = AT.SMS;
+} catch (e) {
+  console.warn("⚠️ Africa's Talking not initialized. Check .env variables.");
+}
 
 // ── Send WhatsApp Alert via Africa's Talking ───────────────────────────────
 const sendWhatsAppAlert = async (phone, alertData) => {
@@ -71,17 +77,9 @@ const sendWhatsAppAlert = async (phone, alertData) => {
 
 // ── Test SMS sender ────────────────────────────────────────────────────────
 const sendTestSMS = async (phone, message) => {
+  if (!sms) return { success: false, error: "AT not initialized" };
   try {
-    console.log(`📤 Sending test SMS to ${phone}...`);
-    console.log(`   AT_USERNAME: ${process.env.AT_USERNAME}`);
-    console.log(`   API key present: ${!!process.env.AT_API_KEY}`);
-
-    const response = await sms.send({
-      to: [phone],
-      message: message,
-    });
-
-    console.log("✅ AT Send Response:", JSON.stringify(response, null, 2));
+    const response = await sms.send({ to: [phone], message });
     return { success: true, data: response };
   } catch (error) {
     console.error("❌ AT Send Error:", error.message);
@@ -89,14 +87,12 @@ const sendTestSMS = async (phone, message) => {
   }
 };
 
-// ── POST /api/alerts/test-sms ──────────────────────────────────────────────
 exports.testSendSms = async (req, res) => {
   const { phone, message } = req.body;
   if (!phone || !message) {
-    return res.status(400).json({
-      success: false,
-      error: "phone and message are required",
-    });
+    return res
+      .status(400)
+      .json({ success: false, error: "phone and message are required" });
   }
   const result = await sendTestSMS(phone, message);
   res.json(result);
@@ -107,14 +103,16 @@ const createDangerAlert = asyncHandler(async (req, res) => {
   const { phone, message, severity, alert_type } = req.body;
 
   try {
+    // 👇 1. LOOKUP USING PHONE HASH
+    const phoneHash = hashForSearch(phone);
     const { rows } = await pool.query(
-      `SELECT m.name, m.nurse_name, m.nurse_phone,
+      `SELECT m.id, m.name, m.nurse_name, m.nurse_phone,
        COALESCE(m.partner_name, '') as partner_name,
        COALESCE(m.partner_phone, '') as partner_phone,
        COALESCE(m.facility_name, '') as facility_name
         FROM mothers m
-        WHERE m.phone = $1`,
-      [phone],
+        WHERE m.phone_hash = $1`,
+      [phoneHash],
     );
 
     const mother = rows[0];
@@ -128,28 +126,27 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       });
     }
 
+    // 👇 2. DECRYPT PII BEFORE SENDING SMS
+    const decryptedMotherName = decrypt(mother.name);
+    const decryptedNursePhone = mother.nurse_phone
+      ? decrypt(mother.nurse_phone)
+      : null;
+    const decryptedPartnerPhone = mother.partner_phone
+      ? decrypt(mother.partner_phone)
+      : null;
+
     const recipients = [];
-    if (
-      mother.nurse_phone &&
-      mother.nurse_phone !== "N/A" &&
-      mother.nurse_phone.length > 8
-    ) {
-      recipients.push(mother.nurse_phone);
-    }
-    if (
-      mother.partner_phone &&
-      mother.partner_phone !== "N/A" &&
-      mother.partner_phone.length > 8
-    ) {
-      recipients.push(mother.partner_phone);
-    }
+    if (decryptedNursePhone && decryptedNursePhone.length > 8)
+      recipients.push(decryptedNursePhone);
+    if (decryptedPartnerPhone && decryptedPartnerPhone.length > 8)
+      recipients.push(decryptedPartnerPhone);
 
     let smsSent = false;
 
-    if (recipients.length > 0) {
+    if (recipients.length > 0 && sms) {
       const smsText =
         `MAMA NA MTOTO+ ALERT 🚨\n` +
-        `Patient: ${mother.name || phone}\n` +
+        `Patient: ${decryptedMotherName || phone}\n` +
         `Symptom: ${message}\n` +
         `Severity: ${severity?.toUpperCase()}\n` +
         `Please respond IMMEDIATELY.\n` +
@@ -163,10 +160,10 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       }
     }
 
-    // Send WhatsApp (non-blocking, fires in parallel with SMS)
-    if (mother.nurse_phone) {
-      sendWhatsAppAlert(mother.nurse_phone, {
-        motherName: mother.name || phone,
+    // Send WhatsApp (non-blocking)
+    if (decryptedNursePhone) {
+      sendWhatsAppAlert(decryptedNursePhone, {
+        motherName: decryptedMotherName || phone,
         symptom: message,
         severity: severity || "critical",
         riskLevel: "high",
@@ -177,18 +174,19 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       });
     }
 
+    // 👇 3. ENCRYPT PII BEFORE SAVING TO ALERTS TABLE
     await pool.query(
       `INSERT INTO alerts
-       (mother_phone, symptom, severity, alert_type,
-        nurse_phone, partner_phone, sms_sent, status, fired_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
+       (mother_id, mother_phone, symptom, severity, alert_type, nurse_phone, partner_phone, sms_sent, status, fired_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())`,
       [
-        phone,
+        mother.id,
+        encrypt(phone), // Store encrypted phone
         message,
         severity,
         alert_type,
-        mother.nurse_phone || null,
-        mother.partner_phone || null,
+        mother.nurse_phone, // Already encrypted in DB
+        mother.partner_phone, // Already encrypted in DB
         smsSent,
         "open",
       ],
@@ -209,54 +207,48 @@ const createDangerAlert = asyncHandler(async (req, res) => {
   }
 });
 
-// ── Get All Alerts ─────────────────────────────────────────────────────────
+// ── Get All Alerts (Enforces Facility Isolation) ───────────────────────────
 const getAllAlerts = async (req, res) => {
   try {
-    const alertsResult = await pool.query(
-      "SELECT * FROM alerts ORDER BY COALESCE(fired_at, created_at, NOW()) DESC LIMIT 100",
-    );
+    let query = `
+      SELECT a.*, m.name as mother_name 
+      FROM alerts a
+      LEFT JOIN mothers m ON a.mother_id = m.id
+      WHERE 1=1
+    `;
+    const params = [];
 
-    const alerts = await Promise.all(
-      alertsResult.rows.map(async (alert) => {
-        let mother_name = null;
-        let mother_id = alert.mother_id || null;
+    // 👇 ENFORCE FACILITY ISOLATION
+    if (req.facilityFilter) {
+      query += " AND m.facility_code = $1";
+      params.push(req.facilityFilter);
+    }
 
-        if (alert.mother_phone) {
-          try {
-            const m = await pool.query(
-              "SELECT id, name FROM mothers WHERE phone = $1 LIMIT 1",
-              [alert.mother_phone],
-            );
-            if (m.rows.length > 0) {
-              mother_name = m.rows[0].name;
-              mother_id = m.rows[0].id;
-            }
-          } catch (e) {
-            // Mother not found — continue
-          }
-        }
+    query +=
+      " ORDER BY COALESCE(a.fired_at, a.created_at, NOW()) DESC LIMIT 100";
 
-        return {
-          id: alert.id,
-          motherId: mother_id,
-          motherPhone: alert.mother_phone,
-          motherName: mother_name,
-          symptom: alert.symptom,
-          dangerSign: alert.symptom,
-          message: alert.message || alert.symptom,
-          severity: alert.severity,
-          status: alert.status,
-          alertType: alert.alert_type,
-          nursePhone: alert.nurse_phone,
-          partnerPhone: alert.partner_phone,
-          smsSent: alert.sms_sent,
-          firedAt: alert.fired_at,
-          createdAt: alert.created_at,
-          acknowledgedAt: alert.acknowledged_at,
-          resolvedAt: alert.resolved_at,
-        };
-      }),
-    );
+    const alertsResult = await pool.query(query, params);
+
+    // 👇 DECRYPT PII BEFORE SENDING TO DASHBOARD
+    const alerts = alertsResult.rows.map((alert) => ({
+      id: alert.id,
+      motherId: alert.mother_id,
+      motherPhone: alert.mother_phone ? decrypt(alert.mother_phone) : null,
+      motherName: alert.mother_name ? decrypt(alert.mother_name) : null,
+      symptom: alert.symptom,
+      dangerSign: alert.symptom,
+      message: alert.message || alert.symptom,
+      severity: alert.severity,
+      status: alert.status,
+      alertType: alert.alert_type,
+      nursePhone: alert.nurse_phone ? decrypt(alert.nurse_phone) : null,
+      partnerPhone: alert.partner_phone ? decrypt(alert.partner_phone) : null,
+      smsSent: alert.sms_sent,
+      firedAt: alert.fired_at,
+      createdAt: alert.created_at,
+      acknowledgedAt: alert.acknowledged_at,
+      resolvedAt: alert.resolved_at,
+    }));
 
     res.status(200).json({ success: true, data: alerts });
   } catch (error) {
@@ -272,10 +264,7 @@ const updateAlert = async (req, res) => {
     const { status } = req.body;
 
     if (!["open", "acknowledged", "resolved"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid status. Must be: open, acknowledged, or resolved",
-      });
+      return res.status(400).json({ success: false, error: "Invalid status." });
     }
 
     const uuidRegex =
@@ -284,6 +273,19 @@ const updateAlert = async (req, res) => {
       return res
         .status(400)
         .json({ success: false, error: "Invalid alert ID format" });
+    }
+
+    // 👇 Ensure the alert belongs to the nurse's facility
+    if (req.facilityFilter) {
+      const { rows } = await pool.query(
+        `SELECT m.facility_code FROM alerts a JOIN mothers m ON a.mother_id = m.id WHERE a.id = $1`,
+        [id],
+      );
+      if (rows.length === 0 || rows[0].facility_code !== req.facilityFilter) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Unauthorized to update this alert" });
+      }
     }
 
     const result = await pool.query(
@@ -297,51 +299,24 @@ const updateAlert = async (req, res) => {
 
     const alert = result.rows[0];
 
-    try {
-      if (status === "acknowledged") {
-        await pool.query(
-          `UPDATE alerts SET acknowledged_at = NOW() WHERE id = $1`,
-          [id],
-        );
-      } else if (status === "resolved") {
-        await pool.query(
-          `UPDATE alerts SET resolved_at = NOW() WHERE id = $1`,
-          [id],
-        );
-      }
-    } catch (tsError) {
-      console.warn("Timestamp column missing (skipped):", tsError.message);
+    if (status === "acknowledged") {
+      await pool.query(
+        `UPDATE alerts SET acknowledged_at = NOW() WHERE id = $1`,
+        [id],
+      );
+    } else if (status === "resolved") {
+      await pool.query(`UPDATE alerts SET resolved_at = NOW() WHERE id = $1`, [
+        id,
+      ]);
     }
 
-    res.json({
-      success: true,
-      data: {
-        id: alert.id,
-        motherId: alert.mother_id,
-        motherPhone: alert.mother_phone,
-        motherName: alert.mother_name,
-        symptom: alert.symptom,
-        dangerSign: alert.symptom,
-        message: alert.message,
-        severity: alert.severity,
-        status: alert.status,
-        alertType: alert.alert_type,
-        nursePhone: alert.nurse_phone,
-        partnerPhone: alert.partner_phone,
-        smsSent: alert.sms_sent,
-        firedAt: alert.fired_at,
-        createdAt: alert.created_at,
-        acknowledgedAt: alert.acknowledged_at,
-        resolvedAt: alert.resolved_at,
-      },
-    });
+    res.json({ success: true, data: alert });
   } catch (error) {
     console.error("updateAlert error:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// ── Exports ────────────────────────────────────────────────────────────────
 module.exports = {
   createDangerAlert,
   getAllAlerts,
