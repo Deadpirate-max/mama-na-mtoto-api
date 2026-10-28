@@ -1,21 +1,24 @@
-const getStats = asyncHandler(async (req, res) => {
-  // 👇 Apply the filter if it exists
-  const facilityCode = req.facilityFilter;
+const pool = require("../db/pool");
+const { asyncHandler } = require("../utils/asyncHandler");
 
-  let motherQuery = "SELECT COUNT(*) FROM mothers";
-  let visitQuery = "SELECT COUNT(*) FROM anc_visits";
-  let alertQuery = "SELECT COUNT(*) FROM alerts WHERE status = 'open'";
+const getStats = asyncHandler(async (req, res) => {
+  // req.facilityFilter is set by the facilityIsolation middleware in chvAuth.js
+  const facilityFilter = req.facilityFilter;
+
+  let motherQuery = "SELECT COUNT(*) FROM mothers WHERE 1=1";
+  let visitQuery =
+    "SELECT COUNT(*) FROM anc_visits a JOIN mothers m ON a.mother_id = m.id WHERE 1=1";
+  let alertQuery =
+    "SELECT COUNT(*) FROM alerts a JOIN mothers m ON a.mother_id = m.id WHERE a.status = 'open'";
 
   const params = [];
 
-  if (facilityCode) {
-    // Assuming you have a facility_code column on these tables
-    // You might need to JOIN if anc_visits doesn't have facility_code directly
-    motherQuery += " WHERE facility_code = $1";
-    alertQuery += " AND facility_code = $1";
-    visitQuery +=
-      " JOIN mothers ON anc_visits.mother_id = mothers.id WHERE mothers.facility_code = $1";
-    params.push(facilityCode);
+  // 👇 Apply strict facility isolation
+  if (facilityFilter) {
+    motherQuery += " AND facility_code = $1";
+    visitQuery += " AND m.facility_code = $1";
+    alertQuery += " AND m.facility_code = $1";
+    params.push(facilityFilter);
   }
 
   const [mothersRes, visitsRes, alertsRes] = await Promise.all([
@@ -27,10 +30,15 @@ const getStats = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     data: {
-      mothersRegistered: parseInt(mothersRes.rows[0].count),
-      ancVisitsThisMonth: parseInt(visitsRes.rows[0].count),
-      openAlerts: parseInt(alertsRes.rows[0].count),
-      // ...
+      mothersRegistered: parseInt(mothersRes.rows[0].count, 10),
+      ancVisitsThisMonth: parseInt(visitsRes.rows[0].count, 10),
+      openAlerts: parseInt(alertsRes.rows[0].count, 10),
+      // Add any other stats you need here (e.g., appointmentsToday, highRiskMothers)
+      appointmentsToday: 0,
+      highRiskMothers: 0,
+      vaccinationsThisMonth: 0,
     },
   });
 });
+
+module.exports = { getStats };
