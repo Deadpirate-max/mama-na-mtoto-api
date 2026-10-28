@@ -1,11 +1,11 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const pool = require('../db/pool');
+const pool = require("../db/pool");
 
 // Helper: generate 8-character alphanumeric code (e.g., 5UDNX92P)
 function generateCode() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let code = "";
   for (let i = 0; i < 8; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
@@ -13,9 +13,11 @@ function generateCode() {
 }
 
 // GET /api/registrations/:code
-router.get('/:code', async (req, res) => {
-  const { code } = req.params;
-  
+// GET /api/registrations/:code
+router.get("/:code", async (req, res) => {
+  // 👇 SANITIZE: Trim and remove spaces just in case
+  const code = req.params.code.trim().toUpperCase().replace(/\s+/g, "");
+
   // 👇 UPDATED: JOIN with nurses table to get the name and phone!
   const result = await pool.query(
     `SELECT 
@@ -32,43 +34,49 @@ router.get('/:code', async (req, res) => {
      LEFT JOIN nurses n ON rc.nurse_id = n.id
      WHERE rc.code = $1 AND rc.expires_at > NOW()
      AND (rc.used = FALSE OR rc.used IS NULL)`,
-    [code]
+    [code],
   );
 
   if (result.rows.length === 0) {
     return res.status(404).json({
       success: false,
-      error: 'Invalid or expired registration code'
+      error: "Invalid or expired registration code",
     });
   }
   res.json({ success: true, data: result.rows[0] });
 });
-
 // POST /api/registrations/:code/use
-router.post('/:code/use', async (req, res) => {
+router.post("/:code/use", async (req, res) => {
   const { code } = req.params;
   await pool.query(
     `UPDATE registration_codes SET used = TRUE, used_at = NOW() WHERE code = $1`,
-    [code]
+    [code],
   );
   res.json({ success: true });
 });
 
 // POST /api/registrations (nurse generates a new code)
-router.post('/', async (req, res) => {
+router.post("/", async (req, res) => {
   try {
-    const { motherPhone, motherName, weeksPregnant, chvPhone, facilityName, facilityCode } = req.body;
+    const {
+      motherPhone,
+      motherName,
+      weeksPregnant,
+      chvPhone,
+      facilityName,
+      facilityCode,
+    } = req.body;
 
     // 👇 FIX: Query the 'nurses' table instead of 'users'
     const userResult = await pool.query(
       `SELECT id FROM nurses WHERE phone = $1 AND role IN ('chv', 'nurse')`,
-      [chvPhone]
+      [chvPhone],
     );
-    
+
     if (userResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Nurse/CHV not found'
+        error: "Nurse/CHV not found",
       });
     }
     const nurseId = userResult.rows[0].id;
@@ -81,20 +89,28 @@ router.post('/', async (req, res) => {
       `INSERT INTO registration_codes
        (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [code, motherPhone, motherName, weeksPregnant, nurseId, facilityName, facilityCode, expiresAt]
+      [
+        code,
+        motherPhone,
+        motherName,
+        weeksPregnant,
+        nurseId,
+        facilityName,
+        facilityCode,
+        expiresAt,
+      ],
     );
 
     res.json({
       success: true,
       code,
-      expiresAt
+      expiresAt,
     });
-
   } catch (error) {
-    console.error('💥 Registration Route Crash:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'Internal Server Error' 
+    console.error("💥 Registration Route Crash:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Internal Server Error",
     });
   }
 });
