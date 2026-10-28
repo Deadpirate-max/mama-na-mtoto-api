@@ -15,10 +15,9 @@ function generateCode() {
 // GET /api/registrations/:code
 // GET /api/registrations/:code
 router.get("/:code", async (req, res) => {
-  // 👇 SANITIZE: Trim and remove spaces just in case
+  // 👇 SANITIZE: Trim, uppercase, and remove all spaces
   const code = req.params.code.trim().toUpperCase().replace(/\s+/g, "");
 
-  // 👇 UPDATED: JOIN with nurses table to get the name and phone!
   const result = await pool.query(
     `SELECT 
        rc.code,
@@ -45,6 +44,7 @@ router.get("/:code", async (req, res) => {
   }
   res.json({ success: true, data: result.rows[0] });
 });
+
 // POST /api/registrations/:code/use
 router.post("/:code/use", async (req, res) => {
   const { code } = req.params;
