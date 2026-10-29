@@ -16,7 +16,7 @@ function generateCode() {
 // GET /api/registrations/:code
 router.get("/:code", async (req, res) => {
   // 👇 SANITIZE: Trim, uppercase, and remove all spaces
-  const code = req.params.code.trim().toUpperCase().replace(/\s+/g, "");
+  const code = (req.params.code || "").trim().toUpperCase().replace(/\s+/g, "");
 
   const result = await pool.query(
     `SELECT 

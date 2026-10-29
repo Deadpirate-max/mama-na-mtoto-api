@@ -438,8 +438,12 @@ const getMotherById = asyncHandler(async (req, res) => {
   if (rows.length === 0)
     throw new ApiError(404, `No mother found`, errorCodes.NOT_FOUND);
 
+  // 👇 SANITIZE BOTH VALUES BEFORE COMPARING
+  const motherFacility = (rows[0].facility_code || "").trim().toUpperCase();
+  const nurseFacility = (req.facilityFilter || "").trim().toUpperCase();
+
   // 👇 ENFORCE FACILITY ISOLATION
-  if (req.facilityFilter && rows[0].facility_code !== req.facilityFilter) {
+  if (req.facilityFilter && motherFacility !== nurseFacility) {
     throw new ApiError(
       403,
       "Unauthorized to view this patient",
@@ -450,7 +454,6 @@ const getMotherById = asyncHandler(async (req, res) => {
   const data = await buildMotherResponse(rows[0]);
   res.status(200).json({ success: true, data });
 });
-
 // ── Get All Mothers (Enforces Facility Isolation) ─────────────────────────
 const getAllMothers = asyncHandler(async (req, res) => {
   let query = "SELECT * FROM mothers WHERE 1=1";
