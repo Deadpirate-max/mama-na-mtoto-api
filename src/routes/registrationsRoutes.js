@@ -13,43 +13,80 @@ function generateCode() {
 }
 
 // GET /api/registrations/:code
+// GET /api/registrations/:code
 router.get("/:code", async (req, res) => {
   try {
-    // 👇 1. Sanitize the incoming code (trim spaces, force uppercase)
-    const code = (req.params.code || "")
+    const cleanCode = (req.params.code || "")
       .trim()
       .toUpperCase()
       .replace(/\s+/g, "");
 
-    // 👇 2. Sanitize the database column too (TRIM(rc.code)) and ignore expired ones
-    const result = await pool.query(
-      `SELECT 
-         rc.code,
-         rc.mother_phone,
-         rc.mother_name,
-         rc.weeks_pregnant,
-         rc.facility_name,
-         rc.facility_code,
-         rc.expires_at,
-         n.name as nurse_name,
-         n.phone as nurse_phone
-       FROM registration_codes rc
-       LEFT JOIN nurses n ON rc.nurse_id = n.id
-       WHERE TRIM(rc.code) = $1 
-       AND rc.used = FALSE`,
-      [code],
+    // 1. Find the code
+    const codeResult = await pool.query(
+      `SELECT * FROM registration_codes 
+       WHERE TRIM(UPPER(code)) = $1 
+       AND (used = FALSE OR used IS NULL)`,
+      [cleanCode],
     );
 
-    if (result.rows.length === 0) {
+    if (codeResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: "Invalid or expired registration code",
       });
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    const data = codeResult.rows[0];
+
+    // 2. Safely fetch the nurse (casting IDs to text to avoid UUID vs Integer crashes)
+    let nurseName = data.nurse_name || null; // Fallback to registration table if exists
+    let nursePhone = data.nurse_phone || null;
+
+    if (data.nurse_id) {
+      try {
+        const nurseResult = await pool.query(
+          "SELECT name, phone FROM nurses WHERE id::text = $1::text",
+          [String(data.nurse_id)],
+        );
+
+        if (nurseResult.rows.length > 0) {
+          // Safely decrypt
+          try {
+            nurseName = nurseResult.rows[0].name
+              ? decrypt(nurseResult.rows[0].name)
+              : nurseName;
+            nursePhone = nurseResult.rows[0].phone
+              ? decrypt(nurseResult.rows[0].phone)
+              : nursePhone;
+          } catch (e) {
+            console.warn("⚠️ Decryption failed, using raw nurse data");
+            nurseName = nurseResult.rows[0].name;
+            nursePhone = nurseResult.rows[0].phone;
+          }
+        }
+      } catch (nurseErr) {
+        console.warn(
+          "⚠️ Nurse lookup skipped due to type mismatch:",
+          nurseErr.message,
+        );
+      }
+    }
+
+    // 3. Send the response to the mobile app
+    res.json({
+      success: true,
+      data: {
+        code: data.code,
+        mother_name: data.mother_name,
+        weeks_pregnant: data.weeks_pregnant,
+        facility_name: data.facility_name,
+        facility_code: data.facility_code,
+        nurse_name: nurseName,
+        nurse_phone: nursePhone,
+      },
+    });
   } catch (error) {
-    console.error("Verify code error:", error);
+    console.error("💥 Verify code endpoint crashed:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
