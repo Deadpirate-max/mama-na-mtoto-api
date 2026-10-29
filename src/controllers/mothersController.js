@@ -454,13 +454,14 @@ const getMotherById = asyncHandler(async (req, res) => {
   const data = await buildMotherResponse(rows[0]);
   res.status(200).json({ success: true, data });
 });
-// ── Get All Mothers (Enforces Facility Isolation) ─────────────────────────
+
 const getAllMothers = asyncHandler(async (req, res) => {
   let query = "SELECT * FROM mothers WHERE 1=1";
   const params = [];
 
+  // 👇 Bulletproof facility match (ignores spaces and casing)
   if (req.facilityFilter) {
-    query += " AND facility_code = $1";
+    query += " AND UPPER(TRIM(facility_code)) = UPPER(TRIM($1))";
     params.push(req.facilityFilter);
   }
 
@@ -496,9 +497,11 @@ const searchMothers = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = [];
 
-  // 👇 STRICT FACILITY ISOLATION
+  // 👇 Bulletproof facility match here too
   if (req.facilityFilter) {
-    conditions.push(`facility_code = $${params.length + 1}`);
+    conditions.push(
+      `UPPER(TRIM(facility_code)) = UPPER(TRIM($${params.length + 1}))`,
+    );
     params.push(req.facilityFilter);
   }
 
