@@ -195,7 +195,7 @@ const createMother = asyncHandler(async (req, res) => {
     address,
     emergency_contact,
   } = req.body;
-
+  const finalFacilityCode = req.nurse?.facility || facility_code || "";
   const mappedName = name || "Unknown Mother";
   const mappedCounty = county || "N/A";
   const mappedIdNumber = id_number || nationalId || "";
@@ -270,7 +270,7 @@ const createMother = asyncHandler(async (req, res) => {
       nurse_name || "",
       nurse_phone || "",
       facility_name || "",
-      facility_code || "",
+      finalFacilityCode, // 👈 Use the new variable here!
       encryptedPartnerName,
       partner_age ? parseInt(partner_age) : null,
       encryptedPartnerPhone,
@@ -286,7 +286,6 @@ const createMother = asyncHandler(async (req, res) => {
       emergency_contact || null,
     ],
   );
-
   const motherId = result.rows[0].id;
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
