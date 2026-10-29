@@ -13,36 +13,45 @@ function generateCode() {
 }
 
 // GET /api/registrations/:code
-// GET /api/registrations/:code
 router.get("/:code", async (req, res) => {
-  // 👇 SANITIZE: Trim, uppercase, and remove all spaces
-  const code = (req.params.code || "").trim().toUpperCase().replace(/\s+/g, "");
+  try {
+    // 👇 1. Sanitize the incoming code (trim spaces, force uppercase)
+    const code = (req.params.code || "")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, "");
 
-  const result = await pool.query(
-    `SELECT 
-       rc.code,
-       rc.mother_phone,
-       rc.mother_name,
-       rc.weeks_pregnant,
-       rc.facility_name,
-       rc.facility_code,
-       rc.expires_at,
-       n.name as nurse_name,
-       n.phone as nurse_phone
-     FROM registration_codes rc
-     LEFT JOIN nurses n ON rc.nurse_id = n.id
-     WHERE rc.code = $1 AND rc.expires_at > NOW()
-     AND (rc.used = FALSE OR rc.used IS NULL)`,
-    [code],
-  );
+    // 👇 2. Sanitize the database column too (TRIM(rc.code)) and ignore expired ones
+    const result = await pool.query(
+      `SELECT 
+         rc.code,
+         rc.mother_phone,
+         rc.mother_name,
+         rc.weeks_pregnant,
+         rc.facility_name,
+         rc.facility_code,
+         rc.expires_at,
+         n.name as nurse_name,
+         n.phone as nurse_phone
+       FROM registration_codes rc
+       LEFT JOIN nurses n ON rc.nurse_id = n.id
+       WHERE TRIM(rc.code) = $1 
+       AND rc.used = FALSE`,
+      [code],
+    );
 
-  if (result.rows.length === 0) {
-    return res.status(404).json({
-      success: false,
-      error: "Invalid or expired registration code",
-    });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Invalid or expired registration code",
+      });
+    }
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error("Verify code error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
-  res.json({ success: true, data: result.rows[0] });
 });
 
 // POST /api/registrations/:code/use
