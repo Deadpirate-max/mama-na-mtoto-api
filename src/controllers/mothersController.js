@@ -270,7 +270,7 @@ const createMother = asyncHandler(async (req, res) => {
       nurse_name || "",
       nurse_phone || "",
       facility_name || "",
-      finalFacilityCode, // 👈 Use the new variable here!
+      finalFacilityCode,
       encryptedPartnerName,
       partner_age ? parseInt(partner_age) : null,
       encryptedPartnerPhone,
@@ -289,6 +289,7 @@ const createMother = asyncHandler(async (req, res) => {
   const motherId = result.rows[0].id;
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+  const nurseId = req.nurse?.id || null;
 
   await pool.query(
     `INSERT INTO registration_codes 
@@ -299,7 +300,7 @@ const createMother = asyncHandler(async (req, res) => {
       normalizedPhone,
       mappedName,
       computedWeeks,
-      null,
+      nurseId,
       facility_name || "",
       facility_code || "",
       expiresAt,
