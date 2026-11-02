@@ -54,33 +54,38 @@ const nurseLogin = asyncHandler(async (req, res) => {
 
 // ── 2. Super Admin Creates Account (Pilot Method) ───────────────────────────
 const createNurse = asyncHandler(async (req, res) => {
-  const { fullName, phone, email, kncNumber, facilityCode, role } = req.body;
+  const { name, phone, email, facilityCode, role } = req.body;
 
-  const phoneHash = hashForSearch(phone.trim());
+  // Only Super Admins can create Facility Admins.
+  // Facility Admins can only create regular nurses.
+  const assignedRole = req.nurse.role === "super_admin" ? role : "nurse";
+  const assignedFacility =
+    req.nurse.role === "super_admin" ? facilityCode : req.nurse.facility;
 
-  // Default PIN is 1234 (they should change this later, or you can randomize it)
+  const phoneHash = hashForSearch(phone);
+
+  // Default PIN is 1234
   const salt = await bcrypt.genSalt(10);
   const defaultPinHash = await bcrypt.hash("1234", salt);
 
   await pool.query(
     `INSERT INTO nurses (
-      name, phone, phone_hash, email, knc_number, facility_code, role, pin_hash, pin_set, status
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, 'active')`,
+      name, phone, phone_hash, email, facility_code, role, pin_hash, pin_set, status
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, 'active')`,
     [
-      encrypt(fullName),
+      encrypt(name),
       encrypt(phone),
       phoneHash,
-      email,
-      kncNumber,
-      facilityCode,
-      role || "nurse",
+      email || null,
+      assignedFacility,
+      assignedRole,
       defaultPinHash,
     ],
   );
 
   res
     .status(201)
-    .json({ success: true, message: "Nurse created. Default PIN is 1234." });
+    .json({ success: true, message: "Account created. Default PIN is 1234." });
 });
 
 // ── 3. Invite Nurse (Scale Method) ──────────────────────────────────────────
@@ -164,11 +169,12 @@ const { decrypt } = require("../utils/encryption");
 
 // ── 6. Get Nurses for a Facility ──────────────────────────────────────────
 const getNursesByFacility = asyncHandler(async (req, res) => {
-  // If the user is a facility admin, they can only see their own facility.
-  // If super admin, they can pass a facilityCode or see all.
   let facilityCode = req.nurse.facility;
 
-  if (req.nurse.role === "super_admin" && req.params.facilityCode) {
+  // If Super Admin and wants to see all
+  if (req.nurse.role === "super_admin" && req.params.facilityCode === "all") {
+    facilityCode = null; // Fetch all
+  } else if (req.nurse.role === "super_admin" && req.params.facilityCode) {
     facilityCode = req.params.facilityCode;
   }
 
@@ -184,7 +190,6 @@ const getNursesByFacility = asyncHandler(async (req, res) => {
   query += " ORDER BY created_at DESC";
   const result = await pool.query(query, params);
 
-  // Decrypt PII before sending to the dashboard
   const safeNurses = result.rows.map((n) => ({
     id: n.id,
     name: n.name ? decrypt(n.name) : "Pending Registration",
