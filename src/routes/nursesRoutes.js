@@ -29,5 +29,12 @@ router.post(
   requireRole(["super_admin", "facility_admin"]),
   approveNurse,
 );
+// Backend route
+router.get(
+  "/",
+  authenticate,
+  requireRole(["facility_admin", "super_admin"]),
+  getNurses,
+);
 
 module.exports = router;
