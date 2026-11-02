@@ -1,11 +1,13 @@
 const pool = require("../db/pool");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
+const { encrypt, decrypt, hashForSearch } = require("../utils/encryption"); // 👈 Single, clean import
 const { asyncHandler } = require("../utils/asyncHandler");
 const { ApiError, errorCodes } = require("../utils/ApiError");
+
 const JWT_SECRET = process.env.JWT_SECRET || "mama_na_mtoto_secret_2026";
-// ── 1. Login ────────────────────────────────────────────────────────────────
+
+// ── 1. Login (All Roles) ───────────────────────────────────────────────────
 const nurseLogin = asyncHandler(async (req, res) => {
   const { phone, pin } = req.body;
   const phoneHash = hashForSearch(phone.trim());
@@ -34,13 +36,12 @@ const nurseLogin = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Invalid credentials", errorCodes.UNAUTHORIZED);
   }
 
-  // Decrypt PII for the dashboard response
   const safeNurse = {
     id: nurse.id,
     name: decrypt(nurse.name),
     phone: decrypt(nurse.phone),
     facility: nurse.facility_code,
-    role: nurse.role,
+    role: nurse.role, // 'super_admin', 'facility_admin', or 'nurse'
   };
 
   const token = jwt.sign(
@@ -52,26 +53,34 @@ const nurseLogin = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { token, user: safeNurse } });
 });
 
-// ── 2. Super Admin Creates Account (Pilot Method) ───────────────────────────
+// ── 2. Create Account (Super Admin or Facility Admin) ─────────────────────
 const createNurse = asyncHandler(async (req, res) => {
   const { name, phone, email, facilityCode, role } = req.body;
 
-  // Only Super Admins can create Facility Admins.
-  // Facility Admins can only create regular nurses.
+  // Security check: Only Super Admin can create Facility Admins.
+  // Facility Admins can only create regular nurses at their own facility.
   const assignedRole = req.nurse.role === "super_admin" ? role : "nurse";
   const assignedFacility =
     req.nurse.role === "super_admin" ? facilityCode : req.nurse.facility;
 
-  const phoneHash = hashForSearch(phone);
+  if (!assignedFacility) {
+    throw new ApiError(
+      400,
+      "Facility code is required",
+      errorCodes.VALIDATION_ERROR,
+    );
+  }
 
-  // Default PIN is 1234
+  const phoneHash = hashForSearch(phone.trim());
+
+  // Default PIN is 1234 for new accounts
   const salt = await bcrypt.genSalt(10);
   const defaultPinHash = await bcrypt.hash("1234", salt);
 
   await pool.query(
     `INSERT INTO nurses (
-      name, phone, phone_hash, email, facility_code, role, pin_hash, pin_set, status
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, 'active')`,
+      name, phone, phone_hash, email, facility_code, role, pin_hash, status
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')`,
     [
       encrypt(name),
       encrypt(phone),
@@ -88,18 +97,17 @@ const createNurse = asyncHandler(async (req, res) => {
     .json({ success: true, message: "Account created. Default PIN is 1234." });
 });
 
-// ── 3. Invite Nurse (Scale Method) ──────────────────────────────────────────
+// ── 3. Invite Nurse (Facility Admin Method) ───────────────────────────────
 const inviteNurse = asyncHandler(async (req, res) => {
   const { phone } = req.body;
-  const facilityCode = req.nurse.facility_code; // NOIC's facility
+  const facilityCode = req.nurse.facility;
 
-  // Generate a secure random token for the invite link
   const inviteToken = require("crypto").randomBytes(32).toString("hex");
 
   await pool.query(
     `INSERT INTO nurses (
-      phone, phone_hash, facility_code, status, invitation_token
-    ) VALUES ($1, $2, $3, 'pending', $4)`,
+      phone, phone_hash, facility_code, status, invitation_token, role
+    ) VALUES ($1, $2, $3, 'pending', $4, 'nurse')`,
     [encrypt(phone), hashForSearch(phone), facilityCode, inviteToken],
   );
 
@@ -107,73 +115,48 @@ const inviteNurse = asyncHandler(async (req, res) => {
   res.json({ success: true, message: "Invitation sent" });
 });
 
-// ── 4. Register from Invitation (Public Route) ──────────────────────────────
+// ── 4. Register from Invitation (Public Route) ────────────────────────────
 const registerFromInvitation = asyncHandler(async (req, res) => {
   const { token } = req.params;
-  const { fullName, nationalId, kncNumber, email, pin } = req.body;
+  const { name, nationalId, kncNumber, email, pin } = req.body;
 
   const { rows } = await pool.query(
     "SELECT * FROM nurses WHERE invitation_token = $1 AND status = 'pending'",
     [token],
   );
 
-  if (rows.length === 0)
+  if (rows.length === 0) {
     throw new ApiError(
       400,
       "Invalid or expired invitation",
       errorCodes.BAD_REQUEST,
     );
+  }
 
   const nurse = rows[0];
+  const pinHash = await bcrypt.hash(pin.toString(), 10);
 
-  const salt = await bcrypt.genSalt(10);
-  const pinHash = await bcrypt.hash(pin.toString(), salt);
-
-  // Update the pending record with their details
   await pool.query(
     `UPDATE nurses SET 
-      full_name = $1, national_id = $2, knc_number = $3, email = $4, 
-      pin_hash = $5, pin_set = TRUE, name_hash = $6, id_hash = $7
-     WHERE id = $8`,
-    [
-      encrypt(fullName),
-      encrypt(nationalId),
-      kncNumber,
-      email,
-      pinHash,
-      hashForSearch(fullName.trim().toLowerCase()),
-      hashForSearch(nationalId),
-      nurse.id,
-    ],
+      name = $1, knc_number = $2, email = $3, 
+      pin_hash = $4, status = 'active', invitation_token = NULL
+     WHERE id = $5`,
+    [encrypt(name), kncNumber, email, pinHash, nurse.id],
   );
 
   res.json({
     success: true,
-    message: "Registration submitted. Awaiting Facility Admin approval.",
+    message: "Registration complete. You can now log in.",
   });
 });
 
-// ── 5. Approve Nurse ────────────────────────────────────────────────────────
-const approveNurse = asyncHandler(async (req, res) => {
-  const { nurseId } = req.params;
-
-  await pool.query(
-    "UPDATE nurses SET status = 'active', invitation_token = NULL WHERE id = $1",
-    [nurseId],
-  );
-
-  // TODO: Send SMS "Your account is now active"
-  res.json({ success: true, message: "Nurse activated successfully" });
-});
-const { decrypt } = require("../utils/encryption");
-
-// ── 6. Get Nurses for a Facility ──────────────────────────────────────────
+// ── 5. Get Nurses by Facility (Admin View) ────────────────────────────────
 const getNursesByFacility = asyncHandler(async (req, res) => {
   let facilityCode = req.nurse.facility;
 
-  // If Super Admin and wants to see all
+  // If Super Admin wants to see all staff across all facilities
   if (req.nurse.role === "super_admin" && req.params.facilityCode === "all") {
-    facilityCode = null; // Fetch all
+    facilityCode = null;
   } else if (req.nurse.role === "super_admin" && req.params.facilityCode) {
     facilityCode = req.params.facilityCode;
   }
@@ -207,6 +190,5 @@ module.exports = {
   createNurse,
   inviteNurse,
   registerFromInvitation,
-  approveNurse,
   getNursesByFacility,
 };
