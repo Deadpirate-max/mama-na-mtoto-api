@@ -1,7 +1,7 @@
 const pool = require("../db/pool");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { encrypt, decrypt, hashForSearch } = require("../utils/encryption"); // 👈 Single, clean import
+const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 
@@ -41,7 +41,7 @@ const nurseLogin = asyncHandler(async (req, res) => {
     name: decrypt(nurse.name),
     phone: decrypt(nurse.phone),
     facility: nurse.facility_code,
-    role: nurse.role, // 'super_admin', 'facility_admin', or 'nurse'
+    role: nurse.role,
   };
 
   const token = jwt.sign(
@@ -57,8 +57,6 @@ const nurseLogin = asyncHandler(async (req, res) => {
 const createNurse = asyncHandler(async (req, res) => {
   const { name, phone, email, facilityCode, role } = req.body;
 
-  // Security check: Only Super Admin can create Facility Admins.
-  // Facility Admins can only create regular nurses at their own facility.
   const assignedRole = req.nurse.role === "super_admin" ? role : "nurse";
   const assignedFacility =
     req.nurse.role === "super_admin" ? facilityCode : req.nurse.facility;
@@ -72,8 +70,6 @@ const createNurse = asyncHandler(async (req, res) => {
   }
 
   const phoneHash = hashForSearch(phone.trim());
-
-  // Default PIN is 1234 for new accounts
   const salt = await bcrypt.genSalt(10);
   const defaultPinHash = await bcrypt.hash("1234", salt);
 
@@ -111,7 +107,6 @@ const inviteNurse = asyncHandler(async (req, res) => {
     [encrypt(phone), hashForSearch(phone), facilityCode, inviteToken],
   );
 
-  // TODO: Send SMS to nurse with link: https://dashboard.mamanamtoto.com/register/${inviteToken}
   res.json({ success: true, message: "Invitation sent" });
 });
 
@@ -154,7 +149,6 @@ const registerFromInvitation = asyncHandler(async (req, res) => {
 const getNursesByFacility = asyncHandler(async (req, res) => {
   let facilityCode = req.nurse.facility;
 
-  // If Super Admin wants to see all staff across all facilities
   if (req.nurse.role === "super_admin" && req.params.facilityCode === "all") {
     facilityCode = null;
   } else if (req.nurse.role === "super_admin" && req.params.facilityCode) {
@@ -185,6 +179,7 @@ const getNursesByFacility = asyncHandler(async (req, res) => {
   res.json({ success: true, data: safeNurses });
 });
 
+// ── EXPORTS (Must match imports in routes) ────────────────────────────────
 module.exports = {
   nurseLogin,
   createNurse,
