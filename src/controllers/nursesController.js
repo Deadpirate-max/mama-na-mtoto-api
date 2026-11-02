@@ -160,6 +160,42 @@ const approveNurse = asyncHandler(async (req, res) => {
   // TODO: Send SMS "Your account is now active"
   res.json({ success: true, message: "Nurse activated successfully" });
 });
+const { decrypt } = require("../utils/encryption");
+
+// ── 6. Get Nurses for a Facility ──────────────────────────────────────────
+const getNursesByFacility = asyncHandler(async (req, res) => {
+  // If the user is a facility admin, they can only see their own facility.
+  // If super admin, they can pass a facilityCode or see all.
+  let facilityCode = req.nurse.facility;
+
+  if (req.nurse.role === "super_admin" && req.params.facilityCode) {
+    facilityCode = req.params.facilityCode;
+  }
+
+  let query =
+    "SELECT id, name, phone, role, status, facility_code FROM nurses WHERE 1=1";
+  const params = [];
+
+  if (facilityCode) {
+    query += " AND facility_code = $1";
+    params.push(facilityCode);
+  }
+
+  query += " ORDER BY created_at DESC";
+  const result = await pool.query(query, params);
+
+  // Decrypt PII before sending to the dashboard
+  const safeNurses = result.rows.map((n) => ({
+    id: n.id,
+    name: n.name ? decrypt(n.name) : "Pending Registration",
+    phone: n.phone ? decrypt(n.phone) : "Unknown",
+    role: n.role,
+    status: n.status,
+    facility_code: n.facility_code,
+  }));
+
+  res.json({ success: true, data: safeNurses });
+});
 
 module.exports = {
   nurseLogin,
@@ -167,4 +203,5 @@ module.exports = {
   inviteNurse,
   registerFromInvitation,
   approveNurse,
+  getNursesByFacility,
 };

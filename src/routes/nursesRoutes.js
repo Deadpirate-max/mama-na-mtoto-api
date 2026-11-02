@@ -1,12 +1,13 @@
 const express = require("express");
 const router = express.Router();
-const { authenticate, requireRole } = require("../middleware/auth");
+const { authenticate, requireRole } = require("../middleware/chvAuth"); // or auth.js
 const {
   nurseLogin,
   createNurse,
   inviteNurse,
   registerFromInvitation,
   approveNurse,
+  getNursesByFacility, // 👈 Import the correct name
 } = require("../controllers/nursesController");
 
 // Public
@@ -29,12 +30,13 @@ router.post(
   requireRole(["super_admin", "facility_admin"]),
   approveNurse,
 );
-// Backend route
+
+// 👇 This is the route your React app is calling
 router.get(
-  "/",
+  "/facility/:facilityCode",
   authenticate,
-  requireRole(["facility_admin", "super_admin"]),
-  getNurses,
+  requireRole(["super_admin", "facility_admin"]),
+  getNursesByFacility,
 );
 
 module.exports = router;
