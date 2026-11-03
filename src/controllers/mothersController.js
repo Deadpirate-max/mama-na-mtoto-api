@@ -171,6 +171,7 @@ const buildMotherResponse = async (rawMother) => {
 };
 
 // ── Create Mother ─────────────────────────────────────────────────────────
+const { mergeProfile } = require("../utils/mergeProfile");
 const createMother = asyncHandler(async (req, res) => {
   const {
     registration_code,
@@ -205,13 +206,23 @@ const createMother = asyncHandler(async (req, res) => {
     emergency_contact,
   } = req.body;
 
-  // 👇 1. Figure out the facility code securely
-  let finalFacilityCode =
-    req.nurse?.facility || req.body.facility_code || facility_code;
-  let finalFacilityName = req.body.facility_name || facility_name;
+  const normalizedPhone = normalizePhone(phone);
+
+  // 👇 1. FIND THE NURSE ID (Fixes Care Team N/A)
   let finalNurseId = req.nurse?.id || null;
 
-  // 1. Get Nurse Data from the Code (and fix facility if missing)
+  // If dashboard is registering, look up the nurse ID using the phone number sent in the body
+  if (!finalNurseId && nurse_phone) {
+    const nurseRes = await pool.query(
+      "SELECT id, name FROM nurses WHERE phone_hash = $1",
+      [hashForSearch(normalizePhone(nurse_phone))],
+    );
+    if (nurseRes.rows.length > 0) {
+      finalNurseId = nurseRes.rows[0].id;
+    }
+  }
+
+  // 2. Get Nurse Data from the Code (if verifying)
   let nurseData = {};
   if (registration_code) {
     const { rows } = await pool.query(
@@ -220,10 +231,9 @@ const createMother = asyncHandler(async (req, res) => {
     );
     if (rows[0]) {
       const r = rows[0];
-      // If the app didn't send the facility, grab it from the code!
-      if (!finalFacilityCode) finalFacilityCode = r.facility_code;
-      if (!finalFacilityName) finalFacilityName = r.facility_name;
       if (!finalNurseId) finalNurseId = r.nurse_id;
+      if (!facility_code) facility_code = r.facility_code;
+      if (!facility_name) facility_name = r.facility_name;
 
       nurseData = {
         name: r.mother_name ? decrypt(r.mother_name) : "",
@@ -237,7 +247,7 @@ const createMother = asyncHandler(async (req, res) => {
     }
   }
 
-  // 2. Prepare Mother Data
+  // 3. Merge (on plain text)
   const motherData = {
     name,
     id_number,
@@ -247,15 +257,12 @@ const createMother = asyncHandler(async (req, res) => {
     partner_name,
     partner_phone,
   };
-
-  // 3. Merge (on plain text)
   const { merged, conflicts, nurseEntered, motherEntered } = mergeProfile(
     nurseData,
     motherData,
   );
 
-  // 4. Encrypt the Final Merged Values
-  const normalizedPhone = normalizePhone(phone);
+  // 4. Encrypt
   const encryptedName = encrypt(merged.name || "Unknown Mother");
   const encryptedPhone = encrypt(normalizedPhone);
   const encryptedIdNumber = encrypt(merged.id_number || "");
@@ -266,18 +273,11 @@ const createMother = asyncHandler(async (req, res) => {
     ? encrypt(merged.partner_phone)
     : "";
 
-  const mappedCounty = merged.county || county || "N/A";
-  const mappedAddress = merged.village || address || "";
+  let conditionsJson = Array.isArray(conditions)
+    ? JSON.stringify(conditions)
+    : conditions || "[]";
 
-  let conditionsJson = "[]";
-  if (Array.isArray(conditions)) conditionsJson = JSON.stringify(conditions);
-  else if (typeof conditions === "string") conditionsJson = conditions;
-
-  let computedWeeks =
-    parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
-  let computedEdd = edd || null;
-
-  // 5. Insert / Update
+  // 5. Insert / Update Mother
   const result = await pool.query(
     `INSERT INTO mothers (
       name, phone, phone_hash, name_hash, id_number_hash, county, 
@@ -293,17 +293,8 @@ const createMother = asyncHandler(async (req, res) => {
     )
     ON CONFLICT (phone_hash) DO UPDATE SET
       name           = EXCLUDED.name,
-      id_number      = EXCLUDED.id_number,
-      county         = EXCLUDED.county,
-      sub_county     = EXCLUDED.sub_county,
-      village        = EXCLUDED.village,
-      partner_name   = EXCLUDED.partner_name,
-      partner_phone  = EXCLUDED.partner_phone,
-      facility_name  = EXCLUDED.facility_name, -- 👈 FIX: Save the facility on sync
-      facility_code  = EXCLUDED.facility_code, -- 👈 FIX: Save the facility on sync
-      nurse_entered  = EXCLUDED.nurse_entered,
-      mother_entered = EXCLUDED.mother_entered,
-      field_conflicts= EXCLUDED.field_conflicts,
+      facility_name  = EXCLUDED.facility_name,
+      facility_code  = EXCLUDED.facility_code,
       updated_at     = NOW()
     RETURNING id, phone, name`,
     [
@@ -312,54 +303,54 @@ const createMother = asyncHandler(async (req, res) => {
       hashForSearch(normalizedPhone),
       hashForSearch(merged.name.toLowerCase()),
       hashForSearch(merged.id_number),
-      mappedCounty,
+      merged.county,
       merged.sub_county,
-      mappedAddress,
+      merged.village,
       encryptedIdNumber,
       encryptedPartnerName,
       encryptedPartnerPhone,
       JSON.stringify(nurseEntered),
       JSON.stringify(motherEntered),
       JSON.stringify(conflicts),
-      finalFacilityName || "",
-      finalFacilityCode || "",
+      facility_name || "",
+      facility_code || "",
       age ? parseInt(age) : null,
-      computedWeeks,
+      parseInt(weeks_pregnant) || 0,
       registration_date || new Date().toISOString(),
-      computedEdd,
+      edd || null,
       lmp_date,
       gravida,
       para,
       blood_group || null,
-      mappedAddress,
+      merged.village,
       conditionsJson,
     ],
   );
 
   const motherId = result.rows[0].id;
+
+  // 👇 6. Generate Code and SAVE THE NURSE ID
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-  // Generate a new code ONLY if the nurse is registering her from the dashboard
-  if (req.nurse) {
+  if (!registration_code) {
+    // Only create a new code if this is a new registration
     await pool.query(
       `INSERT INTO registration_codes 
        (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at, used)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE) ON CONFLICT (code) DO NOTHING`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)`,
       [
         regCode,
         normalizedPhone,
         merged.name,
-        computedWeeks,
+        parseInt(weeks_pregnant) || 0,
         finalNurseId,
-        finalFacilityName || "",
-        finalFacilityCode || "",
+        facility_name || "",
+        facility_code || "",
         expiresAt,
       ],
     );
-  }
-
-  if (registration_code) {
+  } else {
     await pool.query(
       "UPDATE registration_codes SET used = TRUE WHERE code = $1",
       [registration_code.trim().toUpperCase()],

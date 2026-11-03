@@ -16,12 +16,11 @@ const safeDecrypt = (val) => {
   if (!val) return null;
   try {
     return decrypt(val);
-  } catch (err) {
-    // If it fails, it's probably plain text (e.g., an old record)
+  } catch (e) {
     return val;
   }
 };
-// GET /api/registrations/:code
+
 router.get("/:code", async (req, res) => {
   try {
     const cleanCode = (req.params.code || "")
@@ -29,18 +28,11 @@ router.get("/:code", async (req, res) => {
       .toUpperCase()
       .replace(/\s+/g, "");
 
-    // 👇 Use LEFT JOIN and CAST the IDs to text to prevent type mismatch crashes
     const result = await pool.query(
       `SELECT 
-         rc.code,
-         rc.mother_phone,
-         rc.mother_name,
-         rc.weeks_pregnant,
-         rc.facility_name,
-         rc.facility_code,
-         rc.expires_at,
-         n.name as nurse_name,
-         n.phone as nurse_phone
+         rc.code, rc.mother_phone, rc.mother_name, rc.weeks_pregnant,
+         rc.facility_name, rc.facility_code, rc.expires_at,
+         n.name as nurse_name, n.phone as nurse_phone
        FROM registration_codes rc
        LEFT JOIN nurses n ON rc.nurse_id::text = n.id::text
        WHERE TRIM(UPPER(rc.code)) = $1 
@@ -49,15 +41,16 @@ router.get("/:code", async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Invalid or expired registration code",
-      });
+      return res
+        .status(404)
+        .json({
+          success: false,
+          error: "Invalid or expired registration code",
+        });
     }
 
     const data = result.rows[0];
 
-    // 👇 Safely decrypt
     res.json({
       success: true,
       data: {
@@ -68,7 +61,7 @@ router.get("/:code", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("💥 Verify code endpoint crashed:", error);
+    console.error("Verify code endpoint crashed:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
