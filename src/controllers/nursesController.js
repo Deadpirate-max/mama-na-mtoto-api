@@ -7,10 +7,26 @@ const { ApiError, errorCodes } = require("../utils/ApiError");
 
 const JWT_SECRET = process.env.JWT_SECRET || "mama_na_mtoto_secret_2026";
 
+// 👇 HELPER: Normalize phone numbers to +254...
+const normalizePhone = (phone) => {
+  if (!phone) return phone;
+  let p = phone
+    .toString()
+    .trim()
+    .replace(/[\s\-\(\)]/g, "");
+  if (p.startsWith("0")) p = "+254" + p.substring(1);
+  else if (p.startsWith("254") && !p.startsWith("+254")) p = "+" + p;
+  else if (!p.startsWith("+")) p = "+" + p;
+  return p;
+};
+
 // ── 1. Login (All Roles) ───────────────────────────────────────────────────
 const nurseLogin = asyncHandler(async (req, res) => {
   const { phone, pin } = req.body;
-  const phoneHash = hashForSearch(phone.trim());
+
+  // 👇 Normalize before hashing
+  const normalizedPhone = normalizePhone(phone);
+  const phoneHash = hashForSearch(normalizedPhone);
 
   const { rows } = await pool.query(
     "SELECT * FROM nurses WHERE phone_hash = $1 LIMIT 1",
@@ -69,7 +85,10 @@ const createNurse = asyncHandler(async (req, res) => {
     );
   }
 
-  const phoneHash = hashForSearch(phone.trim());
+  // 👇 Normalize before hashing/encrypting
+  const normalizedPhone = normalizePhone(phone);
+  const phoneHash = hashForSearch(normalizedPhone);
+
   const salt = await bcrypt.genSalt(10);
   const defaultPinHash = await bcrypt.hash("1234", salt);
 
@@ -79,7 +98,7 @@ const createNurse = asyncHandler(async (req, res) => {
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')`,
     [
       encrypt(name),
-      encrypt(phone),
+      encrypt(normalizedPhone), // 👈 Save normalized
       phoneHash,
       email || null,
       assignedFacility,
@@ -95,27 +114,23 @@ const createNurse = asyncHandler(async (req, res) => {
 
 // ── 3. Invite Nurse (Facility Admin Method) ───────────────────────────────
 const inviteNurse = asyncHandler(async (req, res) => {
-  const { phone, facilityCode } = req.body;
+  const { phone } = req.body;
+  const facilityCode = req.nurse.facility;
 
-  // 👇 SECURITY: Super Admin can specify, Facility Admin is locked to their own token
-  const assignedFacility =
-    req.nurse.role === "super_admin" ? facilityCode : req.nurse.facility;
-
-  if (!assignedFacility) {
-    throw new ApiError(
-      400,
-      "Facility code is required",
-      errorCodes.VALIDATION_ERROR,
-    );
-  }
-
+  // 👇 Normalize before hashing
+  const normalizedPhone = normalizePhone(phone);
   const inviteToken = require("crypto").randomBytes(32).toString("hex");
 
   await pool.query(
     `INSERT INTO nurses (
       phone, phone_hash, facility_code, status, invitation_token, role
     ) VALUES ($1, $2, $3, 'pending', $4, 'nurse')`,
-    [encrypt(phone), hashForSearch(phone), assignedFacility, inviteToken],
+    [
+      encrypt(normalizedPhone),
+      hashForSearch(normalizedPhone),
+      facilityCode,
+      inviteToken,
+    ],
   );
 
   res.json({ success: true, message: "Invitation sent" });
