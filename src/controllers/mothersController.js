@@ -3,7 +3,7 @@ const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { calculateRisk } = require("../utils/riskEngine");
 const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
-const { mergeProfile } = require("../utils/mergeProfile");
+const { mergeProfile } = require("../utils/mergeProfile"); // 👈 ONLY ONE IMPORT HERE
 
 // ── Normalize Kenyan phone ─────────────────────────────────────────────────
 const normalizePhone = (phone) => {
@@ -125,8 +125,8 @@ const buildMotherResponse = async (rawMother) => {
     idNumber: mother.id_number,
     phone: mother.phone,
     county: mother.county,
-    subCounty: mother.sub_county, // 👈 Added
-    village: mother.village || mother.address, // 👈 Added fallback
+    subCounty: mother.sub_county,
+    village: mother.village || mother.address,
     profilePhoto: mother.profile_photo_url || null,
     weeksPregnantAtRegistration: mother.weeks_pregnant_at_registration,
     registrationDate: mother.registration_date,
@@ -144,11 +144,9 @@ const buildMotherResponse = async (rawMother) => {
     partnerAge: mother.partner_age,
     partnerPhone: mother.partner_phone,
     pinSet: mother.pin_set,
-    // 👇 NEW: Merge tracking fields
     nurseEntered: mother.nurse_entered || {},
     motherEntered: mother.mother_entered || {},
     fieldConflicts: mother.field_conflicts || {},
-
     ancVisits,
     labResults,
     vaccinations,
@@ -171,7 +169,6 @@ const buildMotherResponse = async (rawMother) => {
 };
 
 // ── Create Mother ─────────────────────────────────────────────────────────
-const { mergeProfile } = require("../utils/mergeProfile");
 const createMother = asyncHandler(async (req, res) => {
   const {
     registration_code,
@@ -210,20 +207,20 @@ const createMother = asyncHandler(async (req, res) => {
 
   // 👇 1. FIND THE NURSE ID (Fixes Care Team N/A)
   let finalNurseId = req.nurse?.id || null;
-
-  // If dashboard is registering, look up the nurse ID using the phone number sent in the body
   if (!finalNurseId && nurse_phone) {
+    const normalizedNursePhone = normalizePhone(nurse_phone);
     const nurseRes = await pool.query(
-      "SELECT id, name FROM nurses WHERE phone_hash = $1",
-      [hashForSearch(normalizePhone(nurse_phone))],
+      "SELECT id FROM nurses WHERE phone_hash = $1",
+      [hashForSearch(normalizedNursePhone)],
     );
-    if (nurseRes.rows.length > 0) {
-      finalNurseId = nurseRes.rows[0].id;
-    }
+    if (nurseRes.rows.length > 0) finalNurseId = nurseRes.rows[0].id;
   }
 
   // 2. Get Nurse Data from the Code (if verifying)
   let nurseData = {};
+  let finalFacilityCode = req.nurse?.facility || facility_code || "";
+  let finalFacilityName = facility_name || "";
+
   if (registration_code) {
     const { rows } = await pool.query(
       "SELECT * FROM registration_codes WHERE code = $1",
@@ -232,8 +229,8 @@ const createMother = asyncHandler(async (req, res) => {
     if (rows[0]) {
       const r = rows[0];
       if (!finalNurseId) finalNurseId = r.nurse_id;
-      if (!facility_code) facility_code = r.facility_code;
-      if (!facility_name) facility_name = r.facility_name;
+      if (!finalFacilityCode) finalFacilityCode = r.facility_code;
+      if (!finalFacilityName) finalFacilityName = r.facility_name;
 
       nurseData = {
         name: r.mother_name ? decrypt(r.mother_name) : "",
@@ -276,6 +273,8 @@ const createMother = asyncHandler(async (req, res) => {
   let conditionsJson = Array.isArray(conditions)
     ? JSON.stringify(conditions)
     : conditions || "[]";
+  let computedWeeks =
+    parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
 
   // 5. Insert / Update Mother
   const result = await pool.query(
@@ -312,10 +311,10 @@ const createMother = asyncHandler(async (req, res) => {
       JSON.stringify(nurseEntered),
       JSON.stringify(motherEntered),
       JSON.stringify(conflicts),
-      facility_name || "",
-      facility_code || "",
+      finalFacilityName,
+      finalFacilityCode,
       age ? parseInt(age) : null,
-      parseInt(weeks_pregnant) || 0,
+      computedWeeks,
       registration_date || new Date().toISOString(),
       edd || null,
       lmp_date,
@@ -334,7 +333,6 @@ const createMother = asyncHandler(async (req, res) => {
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
   if (!registration_code) {
-    // Only create a new code if this is a new registration
     await pool.query(
       `INSERT INTO registration_codes 
        (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at, used)
@@ -343,10 +341,10 @@ const createMother = asyncHandler(async (req, res) => {
         regCode,
         normalizedPhone,
         merged.name,
-        parseInt(weeks_pregnant) || 0,
+        computedWeeks,
         finalNurseId,
-        facility_name || "",
-        facility_code || "",
+        finalFacilityName,
+        finalFacilityCode,
         expiresAt,
       ],
     );
