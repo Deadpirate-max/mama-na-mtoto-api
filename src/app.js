@@ -10,6 +10,7 @@ const adminRoutes = require("./routes/adminRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 const chvRoutes = require("./routes/chvRoutes");
 const chatRoutes = require("./routes/chatRoutes");
+const facilitiesRoutes = require("./routes/facilitiesRoutes");
 const app = express();
 
 // ── Security & parsing (must come before routes) ──────────────────────────────
@@ -46,6 +47,7 @@ app.get("/health", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/mothers", mothersRoutes);
 app.use("/api/alerts", alertsRoutes);
+app.use("/api/facilities", facilitiesRoutes);
 app.use("/api/nurses", nursesRoutes);
 app.use("/api/registrations", registrationsRoutes);
 app.use("/api/admin", adminRoutes);
