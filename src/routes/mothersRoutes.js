@@ -14,6 +14,7 @@ const {
   getAllMothers,
   searchMothers,
   uploadProfilePhoto,
+  resolveConflict,
 } = require("../controllers/mothersController");
 
 // ── MOBILE APP ROUTES (Mother Auth) ────────────────────────────────────────
@@ -30,5 +31,11 @@ router.put("/:phone", requireMotherAuth, updateMother);
 router.get("/", chvAuth, facilityIsolation, getAllMothers);
 router.get("/search", chvAuth, facilityIsolation, searchMothers);
 router.get("/id/:id", chvAuth, facilityIsolation, getMotherById);
+router.patch(
+  "/:phone/conflicts/:field",
+  chvAuth,
+  facilityIsolation,
+  resolveConflict,
+);
 
 module.exports = router;

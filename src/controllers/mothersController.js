@@ -3,6 +3,7 @@ const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { calculateRisk } = require("../utils/riskEngine");
 const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
+const { mergeProfile } = require("../utils/mergeProfile");
 
 // ── Normalize Kenyan phone ─────────────────────────────────────────────────
 const normalizePhone = (phone) => {
@@ -124,7 +125,8 @@ const buildMotherResponse = async (rawMother) => {
     idNumber: mother.id_number,
     phone: mother.phone,
     county: mother.county,
-    village: mother.address,
+    subCounty: mother.sub_county, // 👈 Added
+    village: mother.village || mother.address, // 👈 Added fallback
     profilePhoto: mother.profile_photo_url || null,
     weeksPregnantAtRegistration: mother.weeks_pregnant_at_registration,
     registrationDate: mother.registration_date,
@@ -142,6 +144,11 @@ const buildMotherResponse = async (rawMother) => {
     partnerAge: mother.partner_age,
     partnerPhone: mother.partner_phone,
     pinSet: mother.pin_set,
+    // 👇 NEW: Merge tracking fields
+    nurseEntered: mother.nurse_entered || {},
+    motherEntered: mother.mother_entered || {},
+    fieldConflicts: mother.field_conflicts || {},
+
     ancVisits,
     labResults,
     vaccinations,
@@ -166,6 +173,7 @@ const buildMotherResponse = async (rawMother) => {
 // ── Create Mother ─────────────────────────────────────────────────────────
 const createMother = asyncHandler(async (req, res) => {
   const {
+    registration_code, // 👈 ADDED
     nationalId,
     village,
     parity,
@@ -176,6 +184,7 @@ const createMother = asyncHandler(async (req, res) => {
     weeks_pregnant,
     weeksPregnantAtRegistration,
     county,
+    sub_county, // 👈 ADDED
     id_number,
     nurse_name,
     nurse_phone,
@@ -195,101 +204,128 @@ const createMother = asyncHandler(async (req, res) => {
     address,
     emergency_contact,
   } = req.body;
-  const finalFacilityCode = req.nurse?.facility || facility_code || "";
-  const mappedName = name || "Unknown Mother";
-  const mappedCounty = county || "N/A";
-  const mappedIdNumber = id_number || nationalId || "";
-  const mappedAddress = address || village || "";
-  const mappedLmp = lmp_date || lmp || null;
 
-  const normalizedPhone = normalizePhone(phone);
-
-  const phoneHash = hashForSearch(normalizedPhone);
-  const nameHash = hashForSearch(mappedName.trim().toLowerCase());
-  const idHash = hashForSearch(mappedIdNumber);
-
-  const encryptedName = encrypt(mappedName);
-  const encryptedPhone = encrypt(normalizedPhone);
-  const encryptedIdNumber = encrypt(mappedIdNumber);
-  const encryptedPartnerName = partner_name ? encrypt(partner_name) : "";
-  const encryptedPartnerPhone = partner_phone ? encrypt(partner_phone) : "";
-
-  const gravidaRaw = String(gravida ?? "1").replace(/\D/g, "") || "1";
-  const paraRaw = String(para ?? parity ?? "0").replace(/\D/g, "") || "0";
-  const gravidaStr = `G${gravidaRaw}P${paraRaw}`;
-  const paraStr = `P${paraRaw}`;
-
-  let computedWeeks =
-    parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
-  if (!computedWeeks && mappedLmp) {
-    const lmpDate = new Date(mappedLmp);
-    const today = new Date();
-    const diffDays = Math.floor(
-      (today.getTime() - lmpDate.getTime()) / (1000 * 60 * 60 * 24),
+  // 1. Get Nurse Data from the Code
+  let nurseData = {};
+  if (registration_code) {
+    const { rows } = await pool.query(
+      "SELECT * FROM registration_codes WHERE code = $1",
+      [registration_code.trim().toUpperCase()],
     );
-    computedWeeks = Math.max(0, Math.min(42, Math.floor(diffDays / 7)));
+    if (rows[0]) {
+      const r = rows[0];
+      nurseData = {
+        name: r.mother_name ? decrypt(r.mother_name) : "",
+        id_number: r.id_number ? decrypt(r.id_number) : "",
+        county: r.county,
+        sub_county: r.sub_county,
+        village: r.village,
+        partner_name: r.partner_name ? decrypt(r.partner_name) : "",
+        partner_phone: r.partner_phone ? decrypt(r.partner_phone) : "",
+      };
+    }
   }
+
+  // 2. Prepare Mother Data
+  const motherData = {
+    name,
+    id_number,
+    county,
+    sub_county,
+    village,
+    partner_name,
+    partner_phone,
+  };
+
+  // 3. Merge (on plain text)
+  const { merged, conflicts, nurseEntered, motherEntered } = mergeProfile(
+    nurseData,
+    motherData,
+  );
+
+  // 4. Encrypt the Final Merged Values
+  const normalizedPhone = normalizePhone(phone);
+  const encryptedName = encrypt(merged.name || "Unknown Mother");
+  const encryptedPhone = encrypt(normalizedPhone);
+  const encryptedIdNumber = encrypt(merged.id_number || "");
+  const encryptedPartnerName = merged.partner_name
+    ? encrypt(merged.partner_name)
+    : "";
+  const encryptedPartnerPhone = merged.partner_phone
+    ? encrypt(merged.partner_phone)
+    : "";
+
+  const mappedCounty = merged.county || county || "N/A";
+  const mappedAddress = merged.village || address || "";
 
   let conditionsJson = "[]";
   if (Array.isArray(conditions)) conditionsJson = JSON.stringify(conditions);
   else if (typeof conditions === "string") conditionsJson = conditions;
 
+  let computedWeeks =
+    parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
   let computedEdd = edd || null;
-  if (!computedEdd && mappedLmp) {
-    const lmpDate = new Date(mappedLmp);
-    lmpDate.setDate(lmpDate.getDate() + 280);
-    computedEdd = lmpDate.toISOString().split("T")[0];
-  }
 
+  // 5. Insert / Update
   const result = await pool.query(
     `INSERT INTO mothers (
-      name, phone, phone_hash, name_hash, id_number_hash, age, 
-      weeks_pregnant_at_registration, county, id_number,
-      nurse_name, nurse_phone, facility_name, facility_code,
-      partner_name, partner_age, partner_phone, profile_photo_url, conditions, 
-      registration_date, edd, lmp_date, gravida, para, blood_group, address, 
-      emergency_contact, created_at, updated_at
+      name, phone, phone_hash, name_hash, id_number_hash, county, 
+      sub_county, village, id_number, partner_name, partner_phone,
+      nurse_entered, mother_entered, field_conflicts,
+      facility_name, facility_code, age, weeks_pregnant_at_registration,
+      registration_date, edd, lmp_date, gravida, para, blood_group, address, conditions,
+      created_at, updated_at
     ) VALUES (
-      $1, $2, $3, $4, $5, $6::int, $7::int, $8, $9,
-      $10, $11, $12, $13, $14, $15::int, $16, $17, $18::jsonb, 
-      $19, $20, $21, $22, $23, $24, $25, $26, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 
+      $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17::int, $18::int,
+      $19, $20, $21, $22, $23, $24, $25, $26::jsonb, NOW(), NOW()
     )
     ON CONFLICT (phone_hash) DO UPDATE SET
-      name = EXCLUDED.name, phone = EXCLUDED.phone, updated_at = NOW()
+      name           = EXCLUDED.name,
+      id_number      = EXCLUDED.id_number,
+      county         = EXCLUDED.county,
+      sub_county     = EXCLUDED.sub_county,
+      village        = EXCLUDED.village,
+      partner_name   = EXCLUDED.partner_name,
+      partner_phone  = EXCLUDED.partner_phone,
+      nurse_entered  = EXCLUDED.nurse_entered,
+      mother_entered = EXCLUDED.mother_entered,
+      field_conflicts= EXCLUDED.field_conflicts,
+      updated_at     = NOW()
     RETURNING id, phone, name`,
     [
       encryptedName,
       encryptedPhone,
-      phoneHash,
-      nameHash,
-      idHash,
+      hashForSearch(normalizedPhone),
+      hashForSearch(merged.name.toLowerCase()),
+      hashForSearch(merged.id_number),
+      mappedCounty,
+      merged.sub_county,
+      mappedAddress,
+      encryptedIdNumber,
+      encryptedPartnerName,
+      encryptedPartnerPhone,
+      JSON.stringify(nurseEntered),
+      JSON.stringify(motherEntered),
+      JSON.stringify(conflicts),
+      facility_name || "",
+      facility_code || "",
       age ? parseInt(age) : null,
       computedWeeks,
-      mappedCounty,
-      encryptedIdNumber,
-      nurse_name || "",
-      nurse_phone || "",
-      facility_name || "",
-      finalFacilityCode,
-      encryptedPartnerName,
-      partner_age ? parseInt(partner_age) : null,
-      encryptedPartnerPhone,
-      profile_photo || null,
-      conditionsJson,
       registration_date || new Date().toISOString(),
       computedEdd,
-      mappedLmp,
-      gravidaStr,
-      paraStr,
+      lmp_date,
+      gravida,
+      para,
       blood_group || null,
       mappedAddress,
-      emergency_contact || null,
+      conditionsJson,
     ],
   );
+
   const motherId = result.rows[0].id;
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
-  const nurseId = req.nurse?.id || null;
 
   await pool.query(
     `INSERT INTO registration_codes 
@@ -298,33 +334,31 @@ const createMother = asyncHandler(async (req, res) => {
     [
       regCode,
       normalizedPhone,
-      mappedName,
+      merged.name,
       computedWeeks,
-      nurseId,
+      req.nurse?.id || null,
       facility_name || "",
       facility_code || "",
       expiresAt,
     ],
   );
 
+  if (registration_code) {
+    await pool.query(
+      "UPDATE registration_codes SET used = TRUE WHERE code = $1",
+      [registration_code.trim().toUpperCase()],
+    );
+  }
+
   res.status(201).json({
     success: true,
     data: {
       mother: {
         id: motherId,
-        name: mappedName,
+        name: merged.name,
         phone: normalizedPhone,
         registrationCode: regCode,
-        edd: computedEdd,
-        gravida: gravidaStr,
-        parity: paraStr,
-        riskLevel: "low",
-        village: mappedAddress,
-        lmp: mappedLmp,
-        age: age ? parseInt(age) : 0,
-        createdAt: new Date().toISOString(),
       },
-      smsSent: false,
     },
   });
 });
@@ -341,6 +375,8 @@ const updateMother = async (req, res) => {
     "age",
     "id_number",
     "county",
+    "sub_county",
+    "village",
     "profile_photo_url",
     "weeks_pregnant_at_registration",
     "registration_date",
@@ -408,6 +444,44 @@ const updateMother = async (req, res) => {
   }
 };
 
+// ── Resolve Field Conflict ────────────────────────────────────────────────
+const resolveConflict = asyncHandler(async (req, res) => {
+  const { phone, field } = req.params;
+  const { choose, value } = req.body;
+  const allowed = [
+    "county",
+    "sub_county",
+    "village",
+    "partner_name",
+    "partner_phone",
+  ];
+
+  if (!allowed.includes(field)) throw new ApiError(400, "Field not resolvable");
+
+  const normalizedPhone = normalizePhone(phone);
+  const phoneHash = hashForSearch(normalizedPhone);
+
+  const { rows } = await pool.query(
+    "SELECT field_conflicts FROM mothers WHERE phone_hash = $1",
+    [phoneHash],
+  );
+  const c = rows[0]?.field_conflicts?.[field];
+  if (!c) throw new ApiError(404, "No conflict on this field");
+
+  const final =
+    choose === "nurse" ? c.nurse : choose === "mother" ? c.mother : value;
+
+  let finalValue = final;
+  if (["partner_name", "partner_phone"].includes(field))
+    finalValue = encrypt(final);
+
+  await pool.query(
+    `UPDATE mothers SET "${field}" = $1, field_conflicts = field_conflicts - $2 WHERE phone_hash = $3`,
+    [finalValue, field, phoneHash],
+  );
+  res.json({ success: true });
+});
+
 // ── Get Mother by Phone ───────────────────────────────────────────────────
 const getMotherByPhone = asyncHandler(async (req, res) => {
   const normalizedPhone = normalizePhone(req.params.phone);
@@ -438,11 +512,9 @@ const getMotherById = asyncHandler(async (req, res) => {
   if (rows.length === 0)
     throw new ApiError(404, `No mother found`, errorCodes.NOT_FOUND);
 
-  // 👇 SANITIZE BOTH VALUES BEFORE COMPARING
   const motherFacility = (rows[0].facility_code || "").trim().toUpperCase();
   const nurseFacility = (req.facilityFilter || "").trim().toUpperCase();
 
-  // 👇 ENFORCE FACILITY ISOLATION
   if (req.facilityFilter && motherFacility !== nurseFacility) {
     throw new ApiError(
       403,
@@ -455,11 +527,11 @@ const getMotherById = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data });
 });
 
+// ── Get All Mothers ───────────────────────────────────────────────────────
 const getAllMothers = asyncHandler(async (req, res) => {
   let query = "SELECT * FROM mothers WHERE 1=1";
   const params = [];
 
-  // 👇 Bulletproof facility match (ignores spaces and casing)
   if (req.facilityFilter) {
     query += " AND UPPER(TRIM(facility_code)) = UPPER(TRIM($1))";
     params.push(req.facilityFilter);
@@ -490,14 +562,13 @@ const getAllMothers = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: mothers });
 });
 
-// ── Search Mothers (Enforces Facility Isolation) ──────────────────────────
+// ── Search Mothers ─────────────────────────────────────────────────────────
 const searchMothers = asyncHandler(async (req, res) => {
   const q = (req.query.q || "").trim();
   let query = "SELECT * FROM mothers WHERE 1=1";
   const params = [];
   const conditions = [];
 
-  // 👇 Bulletproof facility match here too
   if (req.facilityFilter) {
     conditions.push(
       `UPPER(TRIM(facility_code)) = UPPER(TRIM($${params.length + 1}))`,
@@ -592,4 +663,5 @@ module.exports = {
   getAllMothers,
   searchMothers,
   uploadProfilePhoto,
+  resolveConflict,
 };
