@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
+const { decrypt } = require("../utils/encryption");
 
 // Helper: generate 8-character alphanumeric code (e.g., 5UDNX92P)
 function generateCode() {
@@ -11,70 +12,64 @@ function generateCode() {
   }
   return code;
 }
-
-// GET /api/registrations/:code
-router.post("/", async (req, res) => {
+const safeDecrypt = (val) => {
+  if (!val) return null;
   try {
-    const {
-      motherPhone,
-      motherName,
-      idNumber,
-      weeksPregnant,
-      county,
-      subCounty,
-      village,
-      partnerName,
-      partnerPhone,
-      nursePhone,
-      facilityName,
-      facilityCode,
-    } = req.body;
+    return decrypt(val);
+  } catch (err) {
+    // If it fails, it's probably plain text (e.g., an old record)
+    return val;
+  }
+};
+// GET /api/registrations/:code
+router.get("/:code", async (req, res) => {
+  try {
+    const cleanCode = (req.params.code || "")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, "");
 
-    const userResult = await pool.query(
-      `SELECT id FROM nurses WHERE phone = $1 OR phone_hash = $2`,
-      [nursePhone, require("../utils/encryption").hashForSearch(nursePhone)],
+    // 👇 Use LEFT JOIN and CAST the IDs to text to prevent type mismatch crashes
+    const result = await pool.query(
+      `SELECT 
+         rc.code,
+         rc.mother_phone,
+         rc.mother_name,
+         rc.weeks_pregnant,
+         rc.facility_name,
+         rc.facility_code,
+         rc.expires_at,
+         n.name as nurse_name,
+         n.phone as nurse_phone
+       FROM registration_codes rc
+       LEFT JOIN nurses n ON rc.nurse_id::text = n.id::text
+       WHERE TRIM(UPPER(rc.code)) = $1 
+       AND (rc.used = FALSE OR rc.used IS NULL)`,
+      [cleanCode],
     );
 
-    if (userResult.rows.length === 0)
-      return res
-        .status(404)
-        .json({ success: false, error: "Nurse/CHV not found" });
-    const nurseId = userResult.rows[0].id;
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Invalid or expired registration code",
+      });
+    }
 
-    const code = generateCode();
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const data = result.rows[0];
 
-    // 👇 Encrypt PII for the registration code
-    const { encrypt } = require("../utils/encryption");
-
-    await pool.query(
-      `INSERT INTO registration_codes
-       (code, mother_phone, mother_name, id_number, weeks_pregnant,
-        county, sub_county, village, partner_name, partner_phone,
-        nurse_id, facility_name, facility_code, expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-      [
-        code,
-        encrypt(motherPhone),
-        encrypt(motherName),
-        idNumber ? encrypt(idNumber) : null,
-        weeksPregnant,
-        county || null,
-        subCounty || null,
-        village || null,
-        partnerName ? encrypt(partnerName) : null,
-        partnerPhone ? encrypt(partnerPhone) : null,
-        nurseId,
-        facilityName,
-        facilityCode,
-        expiresAt,
-      ],
-    );
-
-    res.json({ success: true, code, expiresAt });
+    // 👇 Safely decrypt
+    res.json({
+      success: true,
+      data: {
+        ...data,
+        mother_name: safeDecrypt(data.mother_name),
+        nurse_name: safeDecrypt(data.nurse_name),
+        nurse_phone: safeDecrypt(data.nurse_phone),
+      },
+    });
   } catch (error) {
-    console.error("💥 Registration Route Crash:", error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("💥 Verify code endpoint crashed:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
