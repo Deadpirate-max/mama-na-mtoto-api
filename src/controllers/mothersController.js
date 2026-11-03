@@ -3,7 +3,7 @@ const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { calculateRisk } = require("../utils/riskEngine");
 const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
-const { mergeProfile } = require("../utils/mergeProfile"); // 👈 ONLY ONE IMPORT HERE
+const { mergeProfile } = require("../utils/mergeProfile");
 
 // ── Normalize Kenyan phone ─────────────────────────────────────────────────
 const normalizePhone = (phone) => {
@@ -27,16 +27,25 @@ const generateRegistrationCode = () => {
   return out;
 };
 
+const safeDecrypt = (val) => {
+  if (!val) return null;
+  try {
+    return decrypt(val);
+  } catch (err) {
+    return val;
+  }
+};
+
 // ── Helper: Decrypt a mother row safely ────────────────────────────────────
 const decryptMotherRow = (mother) => {
   if (!mother) return null;
   return {
     ...mother,
-    name: decrypt(mother.name),
-    phone: decrypt(mother.phone),
-    id_number: decrypt(mother.id_number),
-    partner_name: mother.partner_name ? decrypt(mother.partner_name) : null,
-    partner_phone: mother.partner_phone ? decrypt(mother.partner_phone) : null,
+    name: safeDecrypt(mother.name),
+    phone: safeDecrypt(mother.phone),
+    id_number: safeDecrypt(mother.id_number),
+    partner_name: safeDecrypt(mother.partner_name),
+    partner_phone: safeDecrypt(mother.partner_phone),
   };
 };
 
@@ -355,19 +364,17 @@ const createMother = asyncHandler(async (req, res) => {
     );
   }
 
-  res
-    .status(201)
-    .json({
-      success: true,
-      data: {
-        mother: {
-          id: motherId,
-          name: merged.name,
-          phone: normalizedPhone,
-          registrationCode: regCode,
-        },
+  res.status(201).json({
+    success: true,
+    data: {
+      mother: {
+        id: motherId,
+        name: merged.name,
+        phone: normalizedPhone,
+        registrationCode: regCode,
       },
-    });
+    },
+  });
 });
 
 // ── Update Mother ──────────────────────────────────────────────────────────
