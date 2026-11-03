@@ -173,7 +173,7 @@ const buildMotherResponse = async (rawMother) => {
 // ── Create Mother ─────────────────────────────────────────────────────────
 const createMother = asyncHandler(async (req, res) => {
   const {
-    registration_code, // 👈 ADDED
+    registration_code,
     nationalId,
     village,
     parity,
@@ -184,7 +184,7 @@ const createMother = asyncHandler(async (req, res) => {
     weeks_pregnant,
     weeksPregnantAtRegistration,
     county,
-    sub_county, // 👈 ADDED
+    sub_county,
     id_number,
     nurse_name,
     nurse_phone,
@@ -205,7 +205,13 @@ const createMother = asyncHandler(async (req, res) => {
     emergency_contact,
   } = req.body;
 
-  // 1. Get Nurse Data from the Code
+  // 👇 1. Figure out the facility code securely
+  let finalFacilityCode =
+    req.nurse?.facility || req.body.facility_code || facility_code;
+  let finalFacilityName = req.body.facility_name || facility_name;
+  let finalNurseId = req.nurse?.id || null;
+
+  // 1. Get Nurse Data from the Code (and fix facility if missing)
   let nurseData = {};
   if (registration_code) {
     const { rows } = await pool.query(
@@ -214,6 +220,11 @@ const createMother = asyncHandler(async (req, res) => {
     );
     if (rows[0]) {
       const r = rows[0];
+      // If the app didn't send the facility, grab it from the code!
+      if (!finalFacilityCode) finalFacilityCode = r.facility_code;
+      if (!finalFacilityName) finalFacilityName = r.facility_name;
+      if (!finalNurseId) finalNurseId = r.nurse_id;
+
       nurseData = {
         name: r.mother_name ? decrypt(r.mother_name) : "",
         id_number: r.id_number ? decrypt(r.id_number) : "",
@@ -288,6 +299,8 @@ const createMother = asyncHandler(async (req, res) => {
       village        = EXCLUDED.village,
       partner_name   = EXCLUDED.partner_name,
       partner_phone  = EXCLUDED.partner_phone,
+      facility_name  = EXCLUDED.facility_name, -- 👈 FIX: Save the facility on sync
+      facility_code  = EXCLUDED.facility_code, -- 👈 FIX: Save the facility on sync
       nurse_entered  = EXCLUDED.nurse_entered,
       mother_entered = EXCLUDED.mother_entered,
       field_conflicts= EXCLUDED.field_conflicts,
@@ -308,8 +321,8 @@ const createMother = asyncHandler(async (req, res) => {
       JSON.stringify(nurseEntered),
       JSON.stringify(motherEntered),
       JSON.stringify(conflicts),
-      facility_name || "",
-      facility_code || "",
+      finalFacilityName || "",
+      finalFacilityCode || "",
       age ? parseInt(age) : null,
       computedWeeks,
       registration_date || new Date().toISOString(),
@@ -327,21 +340,24 @@ const createMother = asyncHandler(async (req, res) => {
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-  await pool.query(
-    `INSERT INTO registration_codes 
-     (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at, used)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE) ON CONFLICT (code) DO NOTHING`,
-    [
-      regCode,
-      normalizedPhone,
-      merged.name,
-      computedWeeks,
-      req.nurse?.id || null,
-      facility_name || "",
-      facility_code || "",
-      expiresAt,
-    ],
-  );
+  // Generate a new code ONLY if the nurse is registering her from the dashboard
+  if (req.nurse) {
+    await pool.query(
+      `INSERT INTO registration_codes 
+       (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at, used)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE) ON CONFLICT (code) DO NOTHING`,
+      [
+        regCode,
+        normalizedPhone,
+        merged.name,
+        computedWeeks,
+        finalNurseId,
+        finalFacilityName || "",
+        finalFacilityCode || "",
+        expiresAt,
+      ],
+    );
+  }
 
   if (registration_code) {
     await pool.query(
@@ -350,17 +366,19 @@ const createMother = asyncHandler(async (req, res) => {
     );
   }
 
-  res.status(201).json({
-    success: true,
-    data: {
-      mother: {
-        id: motherId,
-        name: merged.name,
-        phone: normalizedPhone,
-        registrationCode: regCode,
+  res
+    .status(201)
+    .json({
+      success: true,
+      data: {
+        mother: {
+          id: motherId,
+          name: merged.name,
+          phone: normalizedPhone,
+          registrationCode: regCode,
+        },
       },
-    },
-  });
+    });
 });
 
 // ── Update Mother ──────────────────────────────────────────────────────────
