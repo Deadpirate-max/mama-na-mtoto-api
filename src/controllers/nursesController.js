@@ -95,8 +95,19 @@ const createNurse = asyncHandler(async (req, res) => {
 
 // ── 3. Invite Nurse (Facility Admin Method) ───────────────────────────────
 const inviteNurse = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
-  const facilityCode = req.nurse.facility;
+  const { phone, facilityCode } = req.body;
+
+  // 👇 SECURITY: Super Admin can specify, Facility Admin is locked to their own token
+  const assignedFacility =
+    req.nurse.role === "super_admin" ? facilityCode : req.nurse.facility;
+
+  if (!assignedFacility) {
+    throw new ApiError(
+      400,
+      "Facility code is required",
+      errorCodes.VALIDATION_ERROR,
+    );
+  }
 
   const inviteToken = require("crypto").randomBytes(32).toString("hex");
 
@@ -104,7 +115,7 @@ const inviteNurse = asyncHandler(async (req, res) => {
     `INSERT INTO nurses (
       phone, phone_hash, facility_code, status, invitation_token, role
     ) VALUES ($1, $2, $3, 'pending', $4, 'nurse')`,
-    [encrypt(phone), hashForSearch(phone), facilityCode, inviteToken],
+    [encrypt(phone), hashForSearch(phone), assignedFacility, inviteToken],
   );
 
   res.json({ success: true, message: "Invitation sent" });

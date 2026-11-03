@@ -22,7 +22,7 @@ router.post("/", createMother);
 router.post("/upload-photo", uploadProfilePhoto);
 
 // These routes use the Mother's token (phone-based)
-router.get("/phone/:phone", getMotherByPhone);
+router.get("/phone/:phone", requireMotherAuth, getMotherByPhone);
 router.put("/:phone", requireMotherAuth, updateMother);
 
 // ── DASHBOARD ROUTES (CHV/Nurse Auth) ──────────────────────────────────────
