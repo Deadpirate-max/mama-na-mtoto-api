@@ -32,5 +32,7 @@ router.get(
   requireRole(["super_admin", "facility_admin"]),
   getNursesByFacility,
 );
+// Protected (Any logged-in nurse/admin)
+router.post("/change-pin", authenticate, changePin);
 
 module.exports = router;

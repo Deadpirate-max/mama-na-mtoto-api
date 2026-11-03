@@ -189,11 +189,51 @@ const getNursesByFacility = asyncHandler(async (req, res) => {
 
   res.json({ success: true, data: safeNurses });
 });
+// ── 6. Change PIN ─────────────────────────────────────────────────────────
+const changePin = asyncHandler(async (req, res) => {
+  const { currentPin, newPin } = req.body;
+  const nurseId = req.nurse.id; // 👈 Securely grabbed from the JWT token
+
+  if (!/^\d{4}$/.test(newPin)) {
+    throw new ApiError(
+      400,
+      "New PIN must be exactly 4 digits",
+      errorCodes.VALIDATION_ERROR,
+    );
+  }
+
+  // 1. Get current PIN hash
+  const { rows } = await pool.query(
+    "SELECT pin_hash FROM nurses WHERE id = $1",
+    [nurseId],
+  );
+  if (rows.length === 0) {
+    throw new ApiError(404, "User not found", errorCodes.NOT_FOUND);
+  }
+
+  // 2. Verify the current PIN
+  const isValid = await bcrypt.compare(currentPin.toString(), rows[0].pin_hash);
+  if (!isValid) {
+    throw new ApiError(401, "Incorrect current PIN", errorCodes.UNAUTHORIZED);
+  }
+
+  // 3. Hash and save the new PIN
+  const salt = await bcrypt.genSalt(10);
+  const newPinHash = await bcrypt.hash(newPin.toString(), salt);
+
+  await pool.query("UPDATE nurses SET pin_hash = $1 WHERE id = $2", [
+    newPinHash,
+    nurseId,
+  ]);
+
+  res.json({ success: true, message: "PIN updated successfully" });
+});
 
 // ── EXPORTS (Must match imports in routes) ────────────────────────────────
 module.exports = {
   nurseLogin,
   createNurse,
+  changePin,
   inviteNurse,
   registerFromInvitation,
   getNursesByFacility,
