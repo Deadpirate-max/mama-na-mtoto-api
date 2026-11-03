@@ -7,13 +7,17 @@ const {
   inviteNurse,
   registerFromInvitation,
   getNursesByFacility,
+  changePin, // 👈 ADD THIS LINE
 } = require("../controllers/nursesController");
 
 // Public
 router.post("/login", nurseLogin);
 router.post("/register/:token", registerFromInvitation);
 
-// Protected (Super Admin & Facility Admin)
+// Protected (Any logged-in nurse/admin)
+router.post("/change-pin", authenticate, changePin);
+
+// Super Admin & Facility Admin
 router.post(
   "/create",
   authenticate,
@@ -32,7 +36,5 @@ router.get(
   requireRole(["super_admin", "facility_admin"]),
   getNursesByFacility,
 );
-// Protected (Any logged-in nurse/admin)
-router.post("/change-pin", authenticate, changePin);
 
 module.exports = router;
