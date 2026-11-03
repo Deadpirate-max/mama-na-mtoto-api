@@ -230,11 +230,23 @@ const createMother = asyncHandler(async (req, res) => {
   let finalFacilityCode = req.nurse?.facility || facility_code || "";
   let finalFacilityName = facility_name || "";
 
-  if (registration_code) {
-    const { rows } = await pool.query(
-      "SELECT * FROM registration_codes WHERE code = $1",
-      [registration_code.trim().toUpperCase()],
+  if (!registration_code) {
+    await pool.query(
+      `INSERT INTO registration_codes 
+       (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at, used)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)`,
+      [
+        regCode,
+        normalizedPhone,
+        merged.name,
+        computedWeeks,
+        finalNurseId,
+        finalFacilityName,
+        finalFacilityCode,
+        expiresAt,
+      ],
     );
+
     if (rows[0]) {
       const r = rows[0];
       if (!finalNurseId) finalNurseId = r.nurse_id;
@@ -251,6 +263,11 @@ const createMother = asyncHandler(async (req, res) => {
         partner_phone: r.partner_phone ? decrypt(r.partner_phone) : "",
       };
     }
+  } else {
+    await pool.query(
+      "UPDATE registration_codes SET used = TRUE WHERE code = $1",
+      [registration_code.trim().toUpperCase()],
+    );
   }
 
   // 3. Merge (on plain text)
