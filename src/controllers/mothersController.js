@@ -267,9 +267,10 @@ const createMother = asyncHandler(async (req, res) => {
   }
 
   // 3. Merge (on plain text)
+  const mappedIdNumber = id_number || nationalId || "";
   const motherData = {
     name,
-    id_number,
+    id_number: mappedIdNumber,
     county,
     sub_county,
     village,
@@ -410,19 +411,17 @@ const createMother = asyncHandler(async (req, res) => {
     );
   }
 
-  res
-    .status(201)
-    .json({
-      success: true,
-      data: {
-        mother: {
-          id: motherId,
-          name: merged.name,
-          phone: normalizedPhone,
-          registrationCode: regCode,
-        },
+  res.status(201).json({
+    success: true,
+    data: {
+      mother: {
+        id: motherId,
+        name: merged.name,
+        phone: normalizedPhone,
+        registrationCode: regCode,
       },
-    });
+    },
+  });
 });
 
 // ── Update Mother ──────────────────────────────────────────────────────────
