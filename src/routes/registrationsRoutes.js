@@ -41,12 +41,10 @@ router.get("/:code", async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          error: "Invalid or expired registration code",
-        });
+      return res.status(404).json({
+        success: false,
+        error: "Invalid or expired registration code",
+      });
     }
 
     const data = result.rows[0];
