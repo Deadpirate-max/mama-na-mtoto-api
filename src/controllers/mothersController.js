@@ -443,6 +443,7 @@ const updateMother = async (req, res) => {
     "sub_county",
     "village",
     "profile_photo_url",
+    "profilePhoto",
     "weeks_pregnant_at_registration",
     "registration_date",
     "edd",
@@ -463,14 +464,17 @@ const updateMother = async (req, res) => {
   const filteredUpdates = {};
   for (const key of allowedFields) {
     if (Object.prototype.hasOwnProperty.call(updates, key)) {
+      // MAP CAMELCASE TO SNAKE_CASE
+      const dbKey = key === "profilePhoto" ? "profile_photo_url" : key;
+
       if (
         ["name", "id_number", "partner_name", "partner_phone"].includes(key)
       ) {
-        filteredUpdates[key] = encrypt(String(updates[key]));
+        filteredUpdates[dbKey] = encrypt(String(updates[key]));
       } else if (key === "conditions") {
-        filteredUpdates[key] = JSON.stringify(updates[key]);
+        filteredUpdates[dbKey] = JSON.stringify(updates[key]);
       } else {
-        filteredUpdates[key] = updates[key];
+        filteredUpdates[dbKey] = updates[key];
       }
     }
   }
