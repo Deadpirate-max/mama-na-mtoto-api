@@ -214,21 +214,22 @@ const createMother = asyncHandler(async (req, res) => {
 
   const normalizedPhone = normalizePhone(phone);
 
-  // 👇 1. FIND THE NURSE ID (Fixes Care Team N/A)
+  // 👇 1. FIND THE NURSE ID AND FACILITY
   let finalNurseId = req.nurse?.id || null;
+  let finalFacilityCode = req.nurse?.facility || facility_code || "";
+  let finalFacilityName = facility_name || "";
+
   if (!finalNurseId && nurse_phone) {
     const normalizedNursePhone = normalizePhone(nurse_phone);
     const nurseRes = await pool.query(
-      "SELECT id FROM nurses WHERE phone_hash = $1",
+      "SELECT id, facility_code FROM nurses WHERE phone_hash = $1",
       [hashForSearch(normalizedNursePhone)],
     );
-    if (nurseRes.rows.length > 0) finalNurseId = nurseRes.rows[0].id;
+    if (nurseRes.rows.length > 0) {
+      finalNurseId = nurseRes.rows[0].id;
+      finalFacilityCode = nurseRes.rows[0].facility_code; // 👈 Force correct facility code!
+    }
   }
-
-  // 2. Get Nurse Data from the Code (if verifying)
-  let nurseData = {};
-  let finalFacilityCode = req.nurse?.facility || facility_code || "";
-  let finalFacilityName = facility_name || "";
 
   if (!registration_code) {
     await pool.query(
