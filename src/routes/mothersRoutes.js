@@ -37,5 +37,6 @@ router.patch(
   facilityIsolation,
   resolveConflict,
 );
+router.put("/:phone/photo", requireMotherAuth, updatePhoto);
 
 module.exports = router;
