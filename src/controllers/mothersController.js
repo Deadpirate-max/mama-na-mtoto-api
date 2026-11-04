@@ -213,8 +213,6 @@ const createMother = asyncHandler(async (req, res) => {
   } = req.body;
 
   const normalizedPhone = normalizePhone(phone);
-
-  // 👇 DECLARE regCode AND expiresAt AT THE VERY TOP
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
@@ -222,16 +220,24 @@ const createMother = asyncHandler(async (req, res) => {
   let finalNurseId = req.nurse?.id || null;
   let finalFacilityCode = req.nurse?.facility || facility_code || "";
   let finalFacilityName = facility_name || "";
+  let finalNurseName = nurse_name || "";
+  let finalNursePhone = nurse_phone || "";
 
   if (!finalNurseId && nurse_phone) {
     const normalizedNursePhone = normalizePhone(nurse_phone);
     const nurseRes = await pool.query(
-      "SELECT id, facility_code FROM nurses WHERE phone_hash = $1",
+      "SELECT id, name, phone, facility_code FROM nurses WHERE phone_hash = $1",
       [hashForSearch(normalizedNursePhone)],
     );
     if (nurseRes.rows.length > 0) {
       finalNurseId = nurseRes.rows[0].id;
       finalFacilityCode = nurseRes.rows[0].facility_code;
+      finalNurseName = nurseRes.rows[0].name
+        ? decrypt(nurseRes.rows[0].name)
+        : nurse_name;
+      finalNursePhone = nurseRes.rows[0].phone
+        ? decrypt(nurseRes.rows[0].phone)
+        : nurse_phone;
     }
   }
 
@@ -289,8 +295,37 @@ const createMother = asyncHandler(async (req, res) => {
   let conditionsJson = Array.isArray(conditions)
     ? JSON.stringify(conditions)
     : conditions || "[]";
+
+  const mappedLmp = lmp_date || lmp || null;
   let computedWeeks =
     parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
+
+  if (!computedWeeks && mappedLmp) {
+    const lmpDate = new Date(mappedLmp);
+    const today = new Date();
+    const diffDays = Math.floor(
+      (today.getTime() - lmpDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    computedWeeks = Math.max(0, Math.min(42, Math.floor(diffDays / 7)));
+  }
+
+  let computedEdd = edd || null;
+  if (!computedEdd) {
+    if (mappedLmp) {
+      const lmpDate = new Date(mappedLmp);
+      lmpDate.setDate(lmpDate.getDate() + 280);
+      computedEdd = lmpDate.toISOString().split("T")[0];
+    } else if (computedWeeks > 0) {
+      const today = new Date();
+      today.setDate(today.getDate() + (40 - computedWeeks) * 7);
+      computedEdd = today.toISOString().split("T")[0];
+    }
+  }
+
+  const gravidaRaw = String(gravida ?? "1").replace(/\D/g, "") || "1";
+  const paraRaw = String(para ?? parity ?? "0").replace(/\D/g, "") || "0";
+  const gravidaStr = `G${gravidaRaw}P${paraRaw}`;
+  const paraStr = `P${paraRaw}`;
 
   // 5. Insert / Update Mother
   const result = await pool.query(
@@ -300,16 +335,21 @@ const createMother = asyncHandler(async (req, res) => {
       nurse_entered, mother_entered, field_conflicts,
       facility_name, facility_code, age, weeks_pregnant_at_registration,
       registration_date, edd, lmp_date, gravida, para, blood_group, address, conditions,
+      nurse_name, nurse_phone,
       created_at, updated_at
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 
       $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17::int, $18::int,
-      $19, $20, $21, $22, $23, $24, $25, $26::jsonb, NOW(), NOW()
+      $19, $20, $21, $22, $23, $24, $25, $26::jsonb,
+      $27, $28,
+      NOW(), NOW()
     )
     ON CONFLICT (phone_hash) DO UPDATE SET
       name           = EXCLUDED.name,
       facility_name  = EXCLUDED.facility_name,
       facility_code  = EXCLUDED.facility_code,
+      nurse_name     = EXCLUDED.nurse_name,
+      nurse_phone    = EXCLUDED.nurse_phone,
       updated_at     = NOW()
     RETURNING id, phone, name`,
     [
@@ -332,13 +372,15 @@ const createMother = asyncHandler(async (req, res) => {
       age ? parseInt(age) : null,
       computedWeeks,
       registration_date || new Date().toISOString(),
-      edd || null,
-      lmp_date,
-      gravida,
-      para,
+      computedEdd,
+      mappedLmp,
+      gravidaStr,
+      paraStr,
       blood_group || null,
       merged.village,
       conditionsJson,
+      finalNurseName,
+      finalNursePhone,
     ],
   );
 
