@@ -15,6 +15,7 @@ const {
   searchMothers,
   uploadProfilePhoto,
   resolveConflict,
+  updatePhoto,
 } = require("../controllers/mothersController");
 
 // ── MOBILE APP ROUTES (Mother Auth) ────────────────────────────────────────
