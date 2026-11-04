@@ -351,6 +351,7 @@ const createMother = asyncHandler(async (req, res) => {
       facility_code  = EXCLUDED.facility_code,
       nurse_name     = EXCLUDED.nurse_name,
       nurse_phone    = EXCLUDED.nurse_phone,
+      edd            = EXCLUDED.edd,
       updated_at     = NOW()
     RETURNING id, phone, name`,
     [
