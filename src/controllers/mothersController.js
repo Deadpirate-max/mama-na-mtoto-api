@@ -719,6 +719,23 @@ const uploadProfilePhoto = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+const updatePhoto = asyncHandler(async (req, res) => {
+  const { phone } = req.params;
+  const normalizedPhone = normalizePhone(phone);
+  const phoneHash = hashForSearch(normalizedPhone);
+  const { photo } = req.body;
+
+  if (photo && photo.length > 150000) {
+    throw new ApiError(413, "Image too large", errorCodes.BAD_REQUEST);
+  }
+
+  await pool.query(
+    "UPDATE mothers SET photo_data = $1, updated_at = NOW() WHERE phone_hash = $2",
+    [photo ? encrypt(photo) : null, phoneHash],
+  );
+
+  res.json({ success: true });
+});
 
 module.exports = {
   createMother,
@@ -729,4 +746,5 @@ module.exports = {
   searchMothers,
   uploadProfilePhoto,
   resolveConflict,
+  updatePhoto,
 };
