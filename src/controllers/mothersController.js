@@ -214,7 +214,11 @@ const createMother = asyncHandler(async (req, res) => {
 
   const normalizedPhone = normalizePhone(phone);
 
-  // 👇 1. FIND THE NURSE ID AND FACILITY
+  // 👇 DECLARE regCode AND expiresAt AT THE VERY TOP
+  const regCode = generateRegistrationCode();
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+  // 1. FIND THE NURSE ID AND FACILITY
   let finalNurseId = req.nurse?.id || null;
   let finalFacilityCode = req.nurse?.facility || facility_code || "";
   let finalFacilityName = facility_name || "";
@@ -227,27 +231,17 @@ const createMother = asyncHandler(async (req, res) => {
     );
     if (nurseRes.rows.length > 0) {
       finalNurseId = nurseRes.rows[0].id;
-      finalFacilityCode = nurseRes.rows[0].facility_code; // 👈 Force correct facility code!
+      finalFacilityCode = nurseRes.rows[0].facility_code;
     }
   }
 
-  if (!registration_code) {
-    await pool.query(
-      `INSERT INTO registration_codes 
-       (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at, used)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)`,
-      [
-        regCode,
-        normalizedPhone,
-        merged.name,
-        computedWeeks,
-        finalNurseId,
-        finalFacilityName,
-        finalFacilityCode,
-        expiresAt,
-      ],
+  // 2. Get Nurse Data from the Code (if verifying)
+  let nurseData = {};
+  if (registration_code) {
+    const { rows } = await pool.query(
+      "SELECT * FROM registration_codes WHERE code = $1",
+      [registration_code.trim().toUpperCase()],
     );
-
     if (rows[0]) {
       const r = rows[0];
       if (!finalNurseId) finalNurseId = r.nurse_id;
@@ -264,11 +258,6 @@ const createMother = asyncHandler(async (req, res) => {
         partner_phone: r.partner_phone ? decrypt(r.partner_phone) : "",
       };
     }
-  } else {
-    await pool.query(
-      "UPDATE registration_codes SET used = TRUE WHERE code = $1",
-      [registration_code.trim().toUpperCase()],
-    );
   }
 
   // 3. Merge (on plain text)
@@ -355,10 +344,7 @@ const createMother = asyncHandler(async (req, res) => {
 
   const motherId = result.rows[0].id;
 
-  // 👇 6. Generate Code and SAVE THE NURSE ID
-  const regCode = generateRegistrationCode();
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
-
+  // 6. Generate Code and SAVE THE NURSE ID
   if (!registration_code) {
     await pool.query(
       `INSERT INTO registration_codes 
@@ -382,17 +368,19 @@ const createMother = asyncHandler(async (req, res) => {
     );
   }
 
-  res.status(201).json({
-    success: true,
-    data: {
-      mother: {
-        id: motherId,
-        name: merged.name,
-        phone: normalizedPhone,
-        registrationCode: regCode,
+  res
+    .status(201)
+    .json({
+      success: true,
+      data: {
+        mother: {
+          id: motherId,
+          name: merged.name,
+          phone: normalizedPhone,
+          registrationCode: regCode,
+        },
       },
-    },
-  });
+    });
 });
 
 // ── Update Mother ──────────────────────────────────────────────────────────
