@@ -345,14 +345,17 @@ const createMother = asyncHandler(async (req, res) => {
       $27, $28,
       NOW(), NOW()
     )
-    ON CONFLICT (phone_hash) DO UPDATE SET
+      ON CONFLICT (phone_hash) DO UPDATE SET
       name           = EXCLUDED.name,
       facility_name  = EXCLUDED.facility_name,
       facility_code  = EXCLUDED.facility_code,
       nurse_name     = EXCLUDED.nurse_name,
       nurse_phone    = EXCLUDED.nurse_phone,
-      edd            = EXCLUDED.edd,
-      updated_at     = NOW()
+      updated_at     = NOW(),
+      -- 👇 ADD THESE LINES: Keep old data if the new data is empty/0
+      weeks_pregnant_at_registration = COALESCE(NULLIF(EXCLUDED.weeks_pregnant_at_registration, 0), mothers.weeks_pregnant_at_registration),
+      edd            = COALESCE(NULLIF(EXCLUDED.edd, ''), mothers.edd),
+      lmp_date       = COALESCE(NULLIF(EXCLUDED.lmp_date, ''), mothers.lmp_date)
     RETURNING id, phone, name`,
     [
       encryptedName,
