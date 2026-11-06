@@ -211,7 +211,10 @@ const createMother = asyncHandler(async (req, res) => {
     address,
     emergency_contact,
   } = req.body;
-
+  const sanitizeDate = (val) => {
+    if (!val || typeof val !== "string" || val.trim() === "") return null;
+    return val;
+  };
   const normalizedPhone = normalizePhone(phone);
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
@@ -305,12 +308,17 @@ const createMother = asyncHandler(async (req, res) => {
     ? JSON.stringify(conditions)
     : conditions || "[]";
 
-  const mappedLmp = lmp_date || lmp || null;
+  // 👇 Sanitize all dates to prevent Postgres crashes
+  const safeLmp = sanitizeDate(lmp_date || lmp);
+  const safeRegDate =
+    sanitizeDate(registration_date) || new Date().toISOString();
+  let safeEdd = sanitizeDate(edd);
+
   let computedWeeks =
     parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
 
-  if (!computedWeeks && mappedLmp) {
-    const lmpDate = new Date(mappedLmp);
+  if (!computedWeeks && safeLmp) {
+    const lmpDate = new Date(safeLmp);
     const today = new Date();
     const diffDays = Math.floor(
       (today.getTime() - lmpDate.getTime()) / (1000 * 60 * 60 * 24),
@@ -318,19 +326,11 @@ const createMother = asyncHandler(async (req, res) => {
     computedWeeks = Math.max(0, Math.min(42, Math.floor(diffDays / 7)));
   }
 
-  let computedEdd = edd || null;
-  if (!computedEdd) {
-    if (mappedLmp) {
-      const lmpDate = new Date(mappedLmp);
-      lmpDate.setDate(lmpDate.getDate() + 280);
-      computedEdd = lmpDate.toISOString().split("T")[0];
-    } else if (computedWeeks > 0) {
-      const today = new Date();
-      today.setDate(today.getDate() + (40 - computedWeeks) * 7);
-      computedEdd = today.toISOString().split("T")[0];
-    }
+  if (!safeEdd && safeLmp) {
+    const lmpDate = new Date(safeLmp);
+    lmpDate.setDate(lmpDate.getDate() + 280);
+    safeEdd = lmpDate.toISOString().split("T")[0];
   }
-
   const gravidaRaw = String(gravida ?? "1").replace(/\D/g, "") || "1";
   const paraRaw = String(para ?? parity ?? "0").replace(/\D/g, "") || "0";
   const gravidaStr = `G${gravidaRaw}P${paraRaw}`;
@@ -384,9 +384,9 @@ const createMother = asyncHandler(async (req, res) => {
       finalFacilityCode,
       age ? parseInt(age) : null,
       computedWeeks,
-      registration_date || new Date().toISOString(),
-      computedEdd,
-      mappedLmp,
+      safeRegDate, // 👈 Use safeRegDate
+      safeEdd, // 👈 Use safeEdd
+      safeLmp, // 👈 Use safeLmp
       gravidaStr,
       paraStr,
       blood_group || null,
