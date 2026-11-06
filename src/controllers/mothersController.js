@@ -554,8 +554,17 @@ const resolveConflict = asyncHandler(async (req, res) => {
 // ── Get Mother by Phone ───────────────────────────────────────────────────
 const getMotherByPhone = asyncHandler(async (req, res) => {
   const normalizedPhone = normalizePhone(req.params.phone);
-  const phoneHash = hashForSearch(normalizedPhone);
 
+  // SECURITY: Ensure the mother is only fetching her own record
+  if (req.mother && req.mother.phone !== normalizedPhone) {
+    throw new ApiError(
+      403,
+      "Unauthorized to view this record",
+      errorCodes.FORBIDDEN,
+    );
+  }
+
+  const phoneHash = hashForSearch(normalizedPhone);
   const { rows } = await pool.query(
     "SELECT * FROM mothers WHERE phone_hash = $1",
     [phoneHash],
@@ -740,6 +749,16 @@ const updatePhoto = asyncHandler(async (req, res) => {
 
   res.json({ success: true });
 });
+const removePartner = asyncHandler(async (req, res) => {
+  const normalizedPhone = normalizePhone(req.params.phone);
+  const phoneHash = hashForSearch(normalizedPhone);
+
+  await pool.query(
+    "UPDATE mothers SET partner_name = NULL, partner_phone = NULL, updated_at = NOW() WHERE phone_hash = $1",
+    [phoneHash],
+  );
+  res.json({ success: true, message: "Partner removed" });
+});
 
 module.exports = {
   createMother,
@@ -751,4 +770,5 @@ module.exports = {
   uploadProfilePhoto,
   resolveConflict,
   updatePhoto,
+  removePartner,
 };

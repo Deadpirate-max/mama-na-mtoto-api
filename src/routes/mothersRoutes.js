@@ -39,5 +39,6 @@ router.patch(
   resolveConflict,
 );
 router.put("/:phone/photo", requireMotherAuth, updatePhoto);
+router.delete("/:phone/partner", requireMotherAuth, removePartner);
 
 module.exports = router;
