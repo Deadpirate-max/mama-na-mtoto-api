@@ -23,7 +23,6 @@ const {
 } = require("../controllers/mothersController");
 
 // ── DASHBOARD ROUTES (CHV/Nurse Auth) ──────────────────────────────────────
-// Must be defined BEFORE the /:phone route to prevent conflicts
 router.get("/", chvAuth, facilityIsolation, getAllMothers);
 router.get("/search", chvAuth, facilityIsolation, searchMothers);
 router.get("/id/:id", chvAuth, facilityIsolation, getMotherById);

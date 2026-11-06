@@ -1,6 +1,6 @@
-// src/middleware/chvAuth.js
 const jwt = require("jsonwebtoken");
 const pool = require("../db/pool");
+
 const JWT_SECRET = process.env.JWT_SECRET || "mama_na_mtoto_secret_2026";
 
 exports.authenticate = async (req, res, next) => {
@@ -13,12 +13,13 @@ exports.authenticate = async (req, res, next) => {
     }
     const token = authHeader.substring(7);
     const decoded = jwt.verify(token, JWT_SECRET);
+    const nurseId = decoded.nurseId || decoded.id;
 
-    //  Fetch live status from DB
     const { rows } = await pool.query(
       "SELECT id, role, facility_code, status FROM nurses WHERE id = $1",
-      [decoded.nurseId],
+      [nurseId],
     );
+
     if (rows.length === 0) {
       return res
         .status(401)
@@ -30,6 +31,7 @@ exports.authenticate = async (req, res, next) => {
         .status(403)
         .json({ success: false, error: "Account is not active" });
     }
+
     req.nurse = {
       id: nurse.id,
       role: nurse.role,
@@ -41,4 +43,23 @@ exports.authenticate = async (req, res, next) => {
       .status(401)
       .json({ success: false, error: "Invalid or expired token" });
   }
+};
+
+exports.requireRole = (allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.nurse || !allowedRoles.includes(req.nurse.role)) {
+      return res
+        .status(403)
+        .json({ success: false, error: "Permission denied" });
+    }
+    next();
+  };
+};
+
+exports.facilityIsolation = (req, res, next) => {
+  if (!req.nurse) return next();
+  if (req.nurse.role !== "super_admin") {
+    req.facilityFilter = req.nurse.facility;
+  }
+  next();
 };
