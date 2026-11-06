@@ -211,24 +211,20 @@ const createMother = asyncHandler(async (req, res) => {
     address,
     emergency_contact,
   } = req.body;
-  const sanitizeDate = (val) => {
-    if (!val || typeof val !== "string" || val.trim() === "") return null;
-    return val;
-  };
+
   const normalizedPhone = normalizePhone(phone);
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-  // 👇 ADD THIS SAFE DECRYPT HELPER
-  const safeDecrypt = (val) => {
-    if (!val) return null;
-    try {
-      return decrypt(val);
-    } catch (err) {
-      // If it fails, it's likely plain text (e.g., an old record)
-      return val;
-    }
+  // BULLETPROOF DATE SANITIZATION
+  const safeDate = (val) => {
+    if (!val || typeof val !== "string" || val.trim() === "") return null;
+    return val.trim();
   };
+
+  const safeRegDate = safeDate(registration_date) || new Date().toISOString();
+  const safeLmp = safeDate(lmp_date) || safeDate(lmp);
+  let safeEdd = safeDate(edd);
 
   // 1. FIND THE NURSE ID AND FACILITY
   let finalNurseId = req.nurse?.id || null;
@@ -246,9 +242,13 @@ const createMother = asyncHandler(async (req, res) => {
     if (nurseRes.rows.length > 0) {
       finalNurseId = nurseRes.rows[0].id;
       finalFacilityCode = nurseRes.rows[0].facility_code;
-      // 👇 Use safeDecrypt instead of decrypt
-      finalNurseName = safeDecrypt(nurseRes.rows[0].name) || nurse_name;
-      finalNursePhone = safeDecrypt(nurseRes.rows[0].phone) || nurse_phone;
+      try {
+        finalNurseName = decrypt(nurseRes.rows[0].name) || nurse_name;
+        finalNursePhone = decrypt(nurseRes.rows[0].phone) || nurse_phone;
+      } catch (e) {
+        finalNurseName = nurseRes.rows[0].name;
+        finalNursePhone = nurseRes.rows[0].phone;
+      }
     }
   }
 
@@ -278,10 +278,9 @@ const createMother = asyncHandler(async (req, res) => {
   }
 
   // 3. Merge (on plain text)
-  const mappedIdNumber = id_number || nationalId || "";
   const motherData = {
     name,
-    id_number: mappedIdNumber,
+    id_number,
     county,
     sub_county,
     village,
@@ -293,7 +292,7 @@ const createMother = asyncHandler(async (req, res) => {
     motherData,
   );
 
-  // 4. Encrypt
+  // 4. Encrypt PII
   const encryptedName = encrypt(merged.name || "Unknown Mother");
   const encryptedPhone = encrypt(normalizedPhone);
   const encryptedIdNumber = encrypt(merged.id_number || "");
@@ -307,12 +306,6 @@ const createMother = asyncHandler(async (req, res) => {
   let conditionsJson = Array.isArray(conditions)
     ? JSON.stringify(conditions)
     : conditions || "[]";
-
-  // 👇 Sanitize all dates to prevent Postgres crashes
-  const safeLmp = sanitizeDate(lmp_date || lmp);
-  const safeRegDate =
-    sanitizeDate(registration_date) || new Date().toISOString();
-  let safeEdd = sanitizeDate(edd);
 
   let computedWeeks =
     parseInt(weeks_pregnant || weeksPregnantAtRegistration || 0) || 0;
@@ -331,6 +324,7 @@ const createMother = asyncHandler(async (req, res) => {
     lmpDate.setDate(lmpDate.getDate() + 280);
     safeEdd = lmpDate.toISOString().split("T")[0];
   }
+
   const gravidaRaw = String(gravida ?? "1").replace(/\D/g, "") || "1";
   const paraRaw = String(para ?? parity ?? "0").replace(/\D/g, "") || "0";
   const gravidaStr = `G${gravidaRaw}P${paraRaw}`;
@@ -353,17 +347,15 @@ const createMother = asyncHandler(async (req, res) => {
       $27, $28,
       NOW(), NOW()
     )
-      ON CONFLICT (phone_hash) DO UPDATE SET
+    ON CONFLICT (phone_hash) DO UPDATE SET
       name           = EXCLUDED.name,
       facility_name  = EXCLUDED.facility_name,
       facility_code  = EXCLUDED.facility_code,
       nurse_name     = EXCLUDED.nurse_name,
       nurse_phone    = EXCLUDED.nurse_phone,
-      updated_at     = NOW(),
-      -- 👇 ADD THESE LINES: Keep old data if the new data is empty/0
-      weeks_pregnant_at_registration = COALESCE(NULLIF(EXCLUDED.weeks_pregnant_at_registration, 0), mothers.weeks_pregnant_at_registration),
-      edd            = COALESCE(NULLIF(EXCLUDED.edd, ''), mothers.edd),
-      lmp_date       = COALESCE(NULLIF(EXCLUDED.lmp_date, ''), mothers.lmp_date)
+      edd            = COALESCE(NULLIF(EXCLUDED.edd::text, ''), mothers.edd),
+      lmp_date       = COALESCE(NULLIF(EXCLUDED.lmp_date::text, ''), mothers.lmp_date),
+      updated_at     = NOW()
     RETURNING id, phone, name`,
     [
       encryptedName,
@@ -384,9 +376,9 @@ const createMother = asyncHandler(async (req, res) => {
       finalFacilityCode,
       age ? parseInt(age) : null,
       computedWeeks,
-      safeRegDate, // 👈 Use safeRegDate
-      safeEdd, // 👈 Use safeEdd
-      safeLmp, // 👈 Use safeLmp
+      safeRegDate,
+      safeEdd,
+      safeLmp,
       gravidaStr,
       paraStr,
       blood_group || null,
@@ -399,7 +391,6 @@ const createMother = asyncHandler(async (req, res) => {
 
   const motherId = result.rows[0].id;
 
-  // 6. Generate Code and SAVE THE NURSE ID
   if (!registration_code) {
     await pool.query(
       `INSERT INTO registration_codes 
