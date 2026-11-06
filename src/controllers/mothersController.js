@@ -347,14 +347,14 @@ const createMother = asyncHandler(async (req, res) => {
       $27, $28,
       NOW(), NOW()
     )
-    ON CONFLICT (phone_hash) DO UPDATE SET
+        ON CONFLICT (phone_hash) DO UPDATE SET
       name           = EXCLUDED.name,
       facility_name  = EXCLUDED.facility_name,
       facility_code  = EXCLUDED.facility_code,
       nurse_name     = EXCLUDED.nurse_name,
       nurse_phone    = EXCLUDED.nurse_phone,
-      edd            = COALESCE(NULLIF(EXCLUDED.edd::text, ''), mothers.edd),
-      lmp_date       = COALESCE(NULLIF(EXCLUDED.lmp_date::text, ''), mothers.lmp_date),
+      edd            = COALESCE(EXCLUDED.edd, mothers.edd),
+      lmp_date       = COALESCE(EXCLUDED.lmp_date, mothers.lmp_date),
       updated_at     = NOW()
     RETURNING id, phone, name`,
     [
