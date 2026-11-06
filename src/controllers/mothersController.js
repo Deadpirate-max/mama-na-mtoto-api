@@ -750,13 +750,15 @@ const updatePhoto = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 const removePartner = asyncHandler(async (req, res) => {
-  const normalizedPhone = normalizePhone(req.params.phone);
+  const { phone } = req.params;
+  const normalizedPhone = normalizePhone(phone);
   const phoneHash = hashForSearch(normalizedPhone);
 
   await pool.query(
     "UPDATE mothers SET partner_name = NULL, partner_phone = NULL, updated_at = NOW() WHERE phone_hash = $1",
     [phoneHash],
   );
+
   res.json({ success: true, message: "Partner removed" });
 });
 

@@ -16,6 +16,7 @@ const {
   uploadProfilePhoto,
   resolveConflict,
   updatePhoto,
+  removePartner,
 } = require("../controllers/mothersController");
 
 // ── MOBILE APP ROUTES (Mother Auth) ────────────────────────────────────────
