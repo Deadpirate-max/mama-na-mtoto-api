@@ -216,6 +216,17 @@ const createMother = asyncHandler(async (req, res) => {
   const regCode = generateRegistrationCode();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
+  // 👇 ADD THIS SAFE DECRYPT HELPER
+  const safeDecrypt = (val) => {
+    if (!val) return null;
+    try {
+      return decrypt(val);
+    } catch (err) {
+      // If it fails, it's likely plain text (e.g., an old record)
+      return val;
+    }
+  };
+
   // 1. FIND THE NURSE ID AND FACILITY
   let finalNurseId = req.nurse?.id || null;
   let finalFacilityCode = req.nurse?.facility || facility_code || "";
@@ -232,12 +243,9 @@ const createMother = asyncHandler(async (req, res) => {
     if (nurseRes.rows.length > 0) {
       finalNurseId = nurseRes.rows[0].id;
       finalFacilityCode = nurseRes.rows[0].facility_code;
-      finalNurseName = nurseRes.rows[0].name
-        ? decrypt(nurseRes.rows[0].name)
-        : nurse_name;
-      finalNursePhone = nurseRes.rows[0].phone
-        ? decrypt(nurseRes.rows[0].phone)
-        : nurse_phone;
+      // 👇 Use safeDecrypt instead of decrypt
+      finalNurseName = safeDecrypt(nurseRes.rows[0].name) || nurse_name;
+      finalNursePhone = safeDecrypt(nurseRes.rows[0].phone) || nurse_phone;
     }
   }
 
