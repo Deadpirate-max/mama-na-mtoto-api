@@ -14,7 +14,7 @@ exports.authenticate = async (req, res, next) => {
     const token = authHeader.substring(7);
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // 👇 Fetch live status from DB
+    //  Fetch live status from DB
     const { rows } = await pool.query(
       "SELECT id, role, facility_code, status FROM nurses WHERE id = $1",
       [decoded.nurseId],
