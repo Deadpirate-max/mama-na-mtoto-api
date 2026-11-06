@@ -749,6 +749,7 @@ const updatePhoto = asyncHandler(async (req, res) => {
 
   res.json({ success: true });
 });
+
 const removePartner = asyncHandler(async (req, res) => {
   const { phone } = req.params;
   const normalizedPhone = normalizePhone(phone);
