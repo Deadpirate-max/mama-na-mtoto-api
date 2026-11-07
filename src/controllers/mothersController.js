@@ -278,9 +278,10 @@ const createMother = asyncHandler(async (req, res) => {
   }
 
   // 3. Merge (on plain text)
+  const mappedIdNumber = id_number || nationalId || "";
   const motherData = {
     name,
-    id_number,
+    id_number: mappedIdNumber,
     county,
     sub_county,
     village,
@@ -295,7 +296,7 @@ const createMother = asyncHandler(async (req, res) => {
   // 4. Encrypt PII
   const encryptedName = encrypt(merged.name || "Unknown Mother");
   const encryptedPhone = encrypt(normalizedPhone);
-  const encryptedIdNumber = encrypt(merged.id_number || "");
+  const encryptedIdNumber = encrypt(merged.id_number || nationalId || "");
   const encryptedPartnerName = merged.partner_name
     ? encrypt(merged.partner_name)
     : "";
@@ -319,6 +320,7 @@ const createMother = asyncHandler(async (req, res) => {
     computedWeeks = Math.max(0, Math.min(42, Math.floor(diffDays / 7)));
   }
 
+  // Ensure EDD is calculated if missing
   if (!safeEdd && safeLmp) {
     const lmpDate = new Date(safeLmp);
     lmpDate.setDate(lmpDate.getDate() + 280);
@@ -333,30 +335,31 @@ const createMother = asyncHandler(async (req, res) => {
   // 5. Insert / Update Mother
   const result = await pool.query(
     `INSERT INTO mothers (
-      name, phone, phone_hash, name_hash, id_number_hash, county, 
-      sub_county, village, id_number, partner_name, partner_phone,
-      nurse_entered, mother_entered, field_conflicts,
-      facility_name, facility_code, age, weeks_pregnant_at_registration,
-      registration_date, edd, lmp_date, gravida, para, blood_group, address, conditions,
-      nurse_name, nurse_phone,
-      created_at, updated_at
-    ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 
-      $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17::int, $18::int,
-      $19, $20, $21, $22, $23, $24, $25, $26::jsonb,
-      $27, $28,
-      NOW(), NOW()
-    )
-        ON CONFLICT (phone_hash) DO UPDATE SET
-      name           = EXCLUDED.name,
-      facility_name  = EXCLUDED.facility_name,
-      facility_code  = EXCLUDED.facility_code,
-      nurse_name     = EXCLUDED.nurse_name,
-      nurse_phone    = EXCLUDED.nurse_phone,
-      edd            = COALESCE(EXCLUDED.edd, mothers.edd),
-      lmp_date       = COALESCE(EXCLUDED.lmp_date, mothers.lmp_date),
-      updated_at     = NOW()
-    RETURNING id, phone, name`,
+        name, phone, phone_hash, name_hash, id_number_hash, county, 
+        sub_county, village, id_number, partner_name, partner_phone,
+        nurse_entered, mother_entered, field_conflicts,
+        facility_name, facility_code, age, weeks_pregnant_at_registration,
+        registration_date, edd, lmp_date, gravida, para, blood_group, address, conditions,
+        nurse_name, nurse_phone,
+        created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 
+        $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17::int, $18::int,
+        $19::date, $20::date, $21::date, -- 👈 ADD ::date HERE
+        $22, $23, $24, $25, $26::jsonb,
+        $27, $28,
+        NOW(), NOW()
+      )
+      ON CONFLICT (phone_hash) DO UPDATE SET
+        name           = EXCLUDED.name,
+        facility_name  = EXCLUDED.facility_name,
+        facility_code  = EXCLUDED.facility_code,
+        nurse_name     = EXCLUDED.nurse_name,
+        nurse_phone    = EXCLUDED.nurse_phone,
+        edd            = COALESCE(EXCLUDED.edd, mothers.edd),
+        lmp_date       = COALESCE(EXCLUDED.lmp_date, mothers.lmp_date),
+        updated_at     = NOW()
+      RETURNING id, phone, name`,
     [
       encryptedName,
       encryptedPhone,
@@ -761,6 +764,17 @@ const removePartner = asyncHandler(async (req, res) => {
 
   res.json({ success: true, message: "Partner removed" });
 });
+const savePushToken = asyncHandler(async (req, res) => {
+  const { phone } = req.params;
+  const { token } = req.body;
+  const phoneHash = hashForSearch(normalizePhone(phone));
+
+  await pool.query(
+    "UPDATE mothers SET push_token = $1, updated_at = NOW() WHERE phone_hash = $2",
+    [token, phoneHash],
+  );
+  res.json({ success: true });
+});
 
 module.exports = {
   createMother,
@@ -773,4 +787,5 @@ module.exports = {
   resolveConflict,
   updatePhoto,
   removePartner,
+  savePushToken,
 };
