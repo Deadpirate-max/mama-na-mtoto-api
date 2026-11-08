@@ -129,11 +129,11 @@ const setPin = async (req, res) => {
       [hashedPin, phoneHash],
     );
 
+    // 🛑 THROW AN ERROR instead of returning success: true
     if (result.rows.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "PIN noted — will be applied when profile is created",
-        pending: true,
+      return res.status(404).json({
+        success: false,
+        error: "Mother profile not found. Cannot save PIN.",
       });
     }
 
