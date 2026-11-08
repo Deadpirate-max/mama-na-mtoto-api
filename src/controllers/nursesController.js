@@ -5,9 +5,10 @@ const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 
-const JWT_SECRET = process.env.JWT_SECRET || "mama_na_mtoto_secret_2026";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET is not set");
 
-// 👇 HELPER: Normalize phone numbers to +254...
+// HELPER: Normalize phone numbers to +254...
 const normalizePhone = (phone) => {
   if (!phone) return phone;
   let p = phone
@@ -24,7 +25,7 @@ const normalizePhone = (phone) => {
 const nurseLogin = asyncHandler(async (req, res) => {
   const { phone, pin } = req.body;
 
-  // 👇 Normalize before hashing
+  // Normalize before hashing
   const normalizedPhone = normalizePhone(phone);
   const phoneHash = hashForSearch(normalizedPhone);
 
@@ -85,7 +86,7 @@ const createNurse = asyncHandler(async (req, res) => {
     );
   }
 
-  // 👇 Normalize before hashing/encrypting
+  // Normalize before hashing/encrypting
   const normalizedPhone = normalizePhone(phone);
   const phoneHash = hashForSearch(normalizedPhone);
 
@@ -98,7 +99,7 @@ const createNurse = asyncHandler(async (req, res) => {
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')`,
     [
       encrypt(name),
-      encrypt(normalizedPhone), // 👈 Save normalized
+      encrypt(normalizedPhone),
       phoneHash,
       email || null,
       assignedFacility,
@@ -117,7 +118,7 @@ const inviteNurse = asyncHandler(async (req, res) => {
   const { phone } = req.body;
   const facilityCode = req.nurse.facility;
 
-  // 👇 Normalize before hashing
+  //  Normalize before hashing
   const normalizedPhone = normalizePhone(phone);
   const inviteToken = require("crypto").randomBytes(32).toString("hex");
 

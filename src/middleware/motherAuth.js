@@ -1,5 +1,7 @@
 const jwt = require("jsonwebtoken");
 const { ApiError, errorCodes } = require("../utils/ApiError");
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET is not set");
 
 exports.requireMotherAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;

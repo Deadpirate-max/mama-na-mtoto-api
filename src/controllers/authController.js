@@ -9,7 +9,8 @@ const { hashForSearch } = require("../utils/encryption"); // 👈 IMPORT HASH
 const OTP_LENGTH = parseInt(process.env.OTP_LENGTH || "6", 10);
 const OTP_TTL_MINUTES = parseInt(process.env.OTP_TTL_MINUTES || "5", 10);
 const OTP_MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || "5", 10);
-const JWT_SECRET = process.env.JWT_SECRET || "mama_na_mtoto_secret_2026";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET is not set — refusing to start");
 
 const normalizeKenyanPhone = (phone) => {
   let p = phone
@@ -89,7 +90,7 @@ const verifyOtp = asyncHandler(async (req, res) => {
     otp.id,
   ]);
 
-  // 👇 CHECK IF MOTHER EXISTS USING PHONE HASH
+  // CHECK IF MOTHER EXISTS USING PHONE HASH
   const phoneHash = hashForSearch(phone);
   const motherCheck = await pool.query(
     "SELECT id FROM mothers WHERE phone_hash = $1",
@@ -122,20 +123,18 @@ const setPin = async (req, res) => {
     const hashedPin = await bcrypt.hash(pin.toString(), salt);
     const phoneHash = hashForSearch(phone);
 
-    // 👇 UPDATE USING PHONE HASH
+    // UPDATE USING PHONE HASH
     const result = await pool.query(
       `UPDATE mothers SET pin_hash = $1, pin_set = TRUE WHERE phone_hash = $2 RETURNING phone`,
       [hashedPin, phoneHash],
     );
 
     if (result.rows.length === 0) {
-      return res
-        .status(200)
-        .json({
-          success: true,
-          message: "PIN noted — will be applied when profile is created",
-          pending: true,
-        });
+      return res.status(200).json({
+        success: true,
+        message: "PIN noted — will be applied when profile is created",
+        pending: true,
+      });
     }
 
     res.json({ success: true, message: "PIN set successfully" });
@@ -151,7 +150,7 @@ const verifyPin = async (req, res) => {
     phone = normalizeKenyanPhone(phone);
     const phoneHash = hashForSearch(phone);
 
-    // 👇 SELECT USING PHONE HASH
+    // SELECT USING PHONE HASH
     const result = await pool.query(
       "SELECT pin_hash, pin_set FROM mothers WHERE phone_hash = $1",
       [phoneHash],
@@ -181,7 +180,7 @@ const recoverAccount = asyncHandler(async (req, res) => {
   let { idNumber, fullName, newPhone } = req.body;
   newPhone = normalizeKenyanPhone(newPhone);
 
-  // 👇 SEARCH USING ID HASH AND NAME HASH
+  // SEARCH USING ID HASH AND NAME HASH
   const idHash = hashForSearch(idNumber);
   const nameHash = hashForSearch(fullName.trim().toLowerCase());
 
@@ -257,7 +256,7 @@ const confirmRecovery = asyncHandler(async (req, res) => {
   const oldPhoneHash = hashForSearch(oldPhone);
   const newPhoneHash = hashForSearch(normalizedNew);
 
-  // 👇 UPDATE PHONE, ENCRYPT NEW PHONE, UPDATE HASH
+  // UPDATE PHONE, ENCRYPT NEW PHONE, UPDATE HASH
   const { encrypt } = require("../utils/encryption");
   await pool.query(
     `UPDATE mothers SET phone = $1, phone_hash = $2, pin_hash = $3, pin_set = $4 WHERE phone_hash = $5`,
