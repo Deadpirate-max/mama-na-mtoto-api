@@ -345,17 +345,19 @@ const createMother = asyncHandler(async (req, res) => {
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 
         $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17::int, $18::int,
-        $19::date, $20::date, $21::date, -- 👈 ADD ::date HERE
+        $19::date, $20::date, $21::date, 
         $22, $23, $24, $25, $26::jsonb,
         $27, $28,
         NOW(), NOW()
       )
-      ON CONFLICT (phone_hash) DO UPDATE SET
+            ON CONFLICT (phone_hash) DO UPDATE SET
         name           = EXCLUDED.name,
         facility_name  = EXCLUDED.facility_name,
         facility_code  = EXCLUDED.facility_code,
         nurse_name     = EXCLUDED.nurse_name,
         nurse_phone    = EXCLUDED.nurse_phone,
+        partner_name   = EXCLUDED.partner_name,  
+        partner_phone  = EXCLUDED.partner_phone, 
         edd            = COALESCE(EXCLUDED.edd, mothers.edd),
         lmp_date       = COALESCE(EXCLUDED.lmp_date, mothers.lmp_date),
         updated_at     = NOW()
