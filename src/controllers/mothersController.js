@@ -8,14 +8,29 @@ const { mergeProfile } = require("../utils/mergeProfile");
 // ── Normalize Kenyan phone ─────────────────────────────────────────────────
 const normalizePhone = (phone) => {
   if (!phone) return phone;
-  let p = phone
-    .toString()
-    .trim()
-    .replace(/[\s\-\(\)]/g, "");
-  if (p.startsWith("0")) p = "+254" + p.substring(1);
-  else if (p.startsWith("254") && !p.startsWith("+254")) p = "+" + p;
-  else if (!p.startsWith("+")) p = "+" + p;
-  return p;
+
+  // 1. Remove all non-numeric characters (spaces, dashes, parentheses)
+  let p = phone.toString().replace(/\D/g, "");
+
+  // 2. Handle all Kenyan formats
+  if (p.startsWith("254")) {
+    // Already has country code (e.g., 254712345678)
+  } else if (p.startsWith("0")) {
+    // Starts with 0 (e.g., 0712345678 or 0114701038) -> convert to 254...
+    p = "254" + p.substring(1);
+  } else if (p.length === 9 && (p.startsWith("7") || p.startsWith("1"))) {
+    // 9 digits starting with 7 or 1 (e.g., 712345678 or 114701038) -> add 254
+    p = "254" + p;
+  }
+
+  // 3. Validate and return
+  if (p.length === 12) {
+    return "+" + p;
+  }
+
+  // Fallback for other international formats
+  if (!phone.startsWith("+")) return "+" + phone;
+  return phone;
 };
 
 // ── Generate 8-character registration code ─────────────────────────────────

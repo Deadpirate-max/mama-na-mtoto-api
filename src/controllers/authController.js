@@ -12,21 +12,36 @@ const OTP_MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || "5", 10);
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET is not set — refusing to start");
 
-const normalizeKenyanPhone = (phone) => {
-  let p = phone
-    .toString()
-    .trim()
-    .replace(/[\s\-\(\)]/g, "");
-  if (p.startsWith("0")) p = "+254" + p.substring(1);
-  else if (p.startsWith("254") && !p.startsWith("+254")) p = "+" + p;
-  else if (!p.startsWith("+")) p = "+" + p;
-  return p;
-};
+const normalizePhone = (phone) => {
+  if (!phone) return phone;
 
+  // 1. Remove all non-numeric characters (spaces, dashes, parentheses)
+  let p = phone.toString().replace(/\D/g, "");
+
+  // 2. Handle all Kenyan formats
+  if (p.startsWith("254")) {
+    // Already has country code (e.g., 254712345678)
+  } else if (p.startsWith("0")) {
+    // Starts with 0 (e.g., 0712345678 or 0114701038) -> convert to 254...
+    p = "254" + p.substring(1);
+  } else if (p.length === 9 && (p.startsWith("7") || p.startsWith("1"))) {
+    // 9 digits starting with 7 or 1 (e.g., 712345678 or 114701038) -> add 254
+    p = "254" + p;
+  }
+
+  // 3. Validate and return
+  if (p.length === 12) {
+    return "+" + p;
+  }
+
+  // Fallback for other international formats
+  if (!phone.startsWith("+")) return "+" + phone;
+  return phone;
+};
 // ── Request OTP ───────────────────────────────────────────────────────────────
 const requestOtp = asyncHandler(async (req, res) => {
   let { phone } = req.body;
-  phone = normalizeKenyanPhone(phone);
+  phone = normalizephone(phone);
 
   if (!phone || !/^\+?[1-9]\d{7,14}$/.test(phone)) {
     throw new ApiError(
@@ -60,7 +75,7 @@ const requestOtp = asyncHandler(async (req, res) => {
 // ── Verify OTP ────────────────────────────────────────────────────────────────
 const verifyOtp = asyncHandler(async (req, res) => {
   let { phone, code } = req.body;
-  phone = normalizeKenyanPhone(phone);
+  phone = normalizephone(phone);
 
   const { rows } = await pool.query(
     `SELECT id, code, expires_at, verified, attempts
@@ -112,7 +127,7 @@ const verifyOtp = asyncHandler(async (req, res) => {
 const setPin = async (req, res) => {
   try {
     let { phone, pin } = req.body;
-    phone = normalizeKenyanPhone(phone);
+    phone = normalizePhone(phone);
 
     if (!/^\d{4}$/.test(pin.toString()))
       return res
@@ -129,7 +144,7 @@ const setPin = async (req, res) => {
       [hashedPin, phoneHash],
     );
 
-    // 🛑 THROW AN ERROR instead of returning success: true
+    // THROW AN ERROR instead of returning success: true
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
@@ -147,7 +162,7 @@ const setPin = async (req, res) => {
 const verifyPin = async (req, res) => {
   try {
     let { phone, pin } = req.body;
-    phone = normalizeKenyanPhone(phone);
+    phone = normalizePhone(phone);
     const phoneHash = hashForSearch(phone);
 
     // SELECT USING PHONE HASH
@@ -178,7 +193,7 @@ const verifyPin = async (req, res) => {
 // ── Account Recovery Step 1 ───────────────────────────────────────────────────
 const recoverAccount = asyncHandler(async (req, res) => {
   let { idNumber, fullName, newPhone } = req.body;
-  newPhone = normalizeKenyanPhone(newPhone);
+  newPhone = normalizePhone(newPhone);
 
   // SEARCH USING ID HASH AND NAME HASH
   const idHash = hashForSearch(idNumber);
@@ -229,7 +244,7 @@ const confirmRecovery = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Recovery token invalid.", errorCodes.UNAUTHORIZED);
   }
 
-  const normalizedNew = normalizeKenyanPhone(newPhone);
+  const normalizedNew = normalizePhone(newPhone);
   if (tokenData.action !== "recovery" || tokenData.newPhone !== normalizedNew)
     throw new ApiError(401, "Token mismatch.", errorCodes.UNAUTHORIZED);
 
