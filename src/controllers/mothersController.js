@@ -267,6 +267,16 @@ const createMother = asyncHandler(async (req, res) => {
     }
   }
 
+  if (finalFacilityCode) {
+    const facRes = await pool.query(
+      "SELECT name FROM facilities WHERE code = $1",
+      [finalFacilityCode.trim().toUpperCase()],
+    );
+    if (facRes.rows.length > 0) {
+      finalFacilityName = facRes.rows[0].name;
+    }
+  }
+
   // 2. Get Nurse Data from the Code (if verifying)
   let nurseData = {};
   if (registration_code) {

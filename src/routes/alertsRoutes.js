@@ -7,6 +7,7 @@ const {
   getAllAlerts,
   updateAlert,
   testSendSms,
+  getAllAlertsForMother,
 } = require("../controllers/alertsController");
 
 const dangerAlertSchema = {
@@ -26,5 +27,5 @@ router.post("/test-sms", testSendSms);
 // ── Protected Dashboard Routes (Requires Login + Facility Isolation) ───────
 router.get("/", authenticate, facilityIsolation, getAllAlerts);
 router.patch("/:id", authenticate, facilityIsolation, updateAlert);
-router.post("/danger", createDangerAlert);
+router.get("/mother/:phone", getAllAlertsForMother);
 module.exports = router;

@@ -4,6 +4,21 @@ const { asyncHandler } = require("../utils/asyncHandler");
 const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
 const AfricasTalking = require("africastalking");
 
+// ── Phone normalization helper (needed by getAllAlertsForMother) ──────────
+const normalizePhone = (phone) => {
+  if (!phone) return phone;
+  let p = phone.toString().replace(/\D/g, "");
+  if (p.startsWith("254")) {
+    // Already has country code
+  } else if (p.startsWith("0")) {
+    p = "254" + p.substring(1);
+  } else if (p.length === 9 && (p.startsWith("7") || p.startsWith("1"))) {
+    p = "254" + p;
+  }
+  if (p.length === 12) return "+" + p;
+  if (!phone.startsWith("+")) return "+" + phone;
+  return phone;
+};
 // Initialize AT once — used for both SMS and WhatsApp
 let sms = null;
 try {
@@ -100,7 +115,8 @@ const createDangerAlert = asyncHandler(async (req, res) => {
   const { phone, message, severity, alert_type } = req.body;
 
   try {
-    // 👇 1. LOOKUP USING PHONE HASH
+    // 1. LOOKUP USING PHONE HASH
+    const normalizedPhone = normalizePhone(phone);
     const phoneHash = hashForSearch(phone);
     const { rows } = await pool.query(
       `SELECT m.id, m.name, m.nurse_name, m.nurse_phone,
@@ -123,7 +139,7 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       });
     }
 
-    // 👇 2. DECRYPT PII BEFORE SENDING SMS
+    //  2. DECRYPT PII BEFORE SENDING SMS
     const decryptedMotherName = decrypt(mother.name);
     const decryptedNursePhone = mother.nurse_phone
       ? decrypt(mother.nurse_phone)
@@ -171,7 +187,7 @@ const createDangerAlert = asyncHandler(async (req, res) => {
       });
     }
 
-    // 👇 3. ENCRYPT PII BEFORE SAVING TO ALERTS TABLE
+    // 3. ENCRYPT PII BEFORE SAVING TO ALERTS TABLE
     await pool.query(
       `INSERT INTO alerts
        (mother_id, mother_phone, symptom, severity, alert_type, nurse_phone, partner_phone, sms_sent, status, fired_at)
@@ -215,7 +231,7 @@ const getAllAlerts = async (req, res) => {
     `;
     const params = [];
 
-    // 👇 ENFORCE FACILITY ISOLATION
+    //  ENFORCE FACILITY ISOLATION
     if (req.facilityFilter) {
       query += " AND m.facility_code = $1";
       params.push(req.facilityFilter);
@@ -226,7 +242,7 @@ const getAllAlerts = async (req, res) => {
 
     const alertsResult = await pool.query(query, params);
 
-    // 👇 DECRYPT PII BEFORE SENDING TO DASHBOARD
+    //  DECRYPT PII BEFORE SENDING TO DASHBOARD
     const alerts = alertsResult.rows.map((alert) => ({
       id: alert.id,
       motherId: alert.mother_id,
@@ -272,7 +288,7 @@ const updateAlert = async (req, res) => {
         .json({ success: false, error: "Invalid alert ID format" });
     }
 
-    // 👇 Ensure the alert belongs to the nurse's facility
+    //  Ensure the alert belongs to the nurse's facility
     if (req.facilityFilter) {
       const { rows } = await pool.query(
         `SELECT m.facility_code FROM alerts a JOIN mothers m ON a.mother_id = m.id WHERE a.id = $1`,
@@ -313,6 +329,42 @@ const updateAlert = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+exports.getAllAlertsForMother = asyncHandler(async (req, res) => {
+  const { phone } = req.params;
+  const normalizedPhone = normalizePhone(phone);
+  const phoneHash = hashForSearch(normalizedPhone);
+
+  const motherRes = await pool.query(
+    "SELECT id FROM mothers WHERE phone_hash = $1",
+    [phoneHash],
+  );
+  if (motherRes.rows.length === 0) {
+    return res.json({ success: true, data: [] });
+  }
+
+  const motherId = motherRes.rows[0].id;
+
+  const alertsRes = await pool.query(
+    "SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC LIMIT 20",
+    [motherId],
+  );
+
+  //  Decrypt phone numbers before sending back to the app
+  const alerts = alertsRes.rows.map((a) => ({
+    id: a.id,
+    motherId: a.mother_id,
+    symptom: a.symptom,
+    message: a.message || a.symptom,
+    severity: a.severity,
+    status: a.status,
+    alertType: a.alert_type,
+    smsSent: a.sms_sent,
+    firedAt: a.fired_at,
+    createdAt: a.created_at,
+  }));
+
+  res.json({ success: true, data: alerts });
+});
 
 module.exports = {
   createDangerAlert,
@@ -321,4 +373,5 @@ module.exports = {
   testSendSms,
   sendWhatsAppAlert,
   sendTestSMS,
+  getAllAlertsForMother,
 };
