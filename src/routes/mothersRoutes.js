@@ -22,6 +22,7 @@ const {
   removePartner,
   savePushToken,
 } = require("../controllers/mothersController");
+const visitsController = require("../controllers/visitsController");
 
 // ── DASHBOARD ROUTES (CHV/Nurse Auth) ──────────────────────────────────────
 router.get("/", chvAuth, facilityIsolation, getAllMothers);
@@ -42,5 +43,12 @@ router.put("/:phone", requireMotherAuth, updateMother);
 router.put("/:phone/photo", requireMotherAuth, updatePhoto);
 router.delete("/:phone/partner", requireMotherAuth, removePartner);
 router.put("/:phone/push-token", requireMotherAuth, savePushToken);
+// ANC Visits routes
+router.post(
+  "/:id/visits",
+  authenticate,
+  facilityIsolation,
+  visitsController.createVisit,
+);
 
 module.exports = router;
