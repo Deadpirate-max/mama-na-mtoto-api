@@ -329,7 +329,7 @@ const updateAlert = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
-exports.getAllAlertsForMother = asyncHandler(async (req, res) => {
+const getAllAlertsForMother = asyncHandler(async (req, res) => {
   const { phone } = req.params;
   const normalizedPhone = normalizePhone(phone);
   const phoneHash = hashForSearch(normalizedPhone);
