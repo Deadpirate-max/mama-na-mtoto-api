@@ -24,6 +24,8 @@ const {
 } = require("../controllers/mothersController");
 
 const visitsController = require("../controllers/visitsController");
+const labsController = require("../controllers/labsController");
+const vaccinationsController = require("../controllers/vaccinationsController");
 
 // ── DASHBOARD ROUTES (CHV/Nurse Auth) ──────────────────────────────────────
 router.get("/", chvAuth, facilityIsolation, getAllMothers);
@@ -36,7 +38,7 @@ router.patch(
   resolveConflict,
 );
 
-// ── ANC VISITS ROUTES (MUST come BEFORE /phone/:phone) ─────────────────────
+// ── ANC VISITS ─────────────────────────────────────────────────────────────
 router.get(
   "/:id/visits",
   chvAuth,
@@ -50,6 +52,24 @@ router.post(
   visitsController.createVisit,
 );
 
+// ── LABS ───────────────────────────────────────────────────────────────────
+router.get("/:id/labs", chvAuth, facilityIsolation, labsController.getLabs);
+router.post("/:id/labs", chvAuth, facilityIsolation, labsController.createLab);
+
+// ── VACCINATIONS ───────────────────────────────────────────────────────────
+router.get(
+  "/:id/vaccinations",
+  chvAuth,
+  facilityIsolation,
+  vaccinationsController.getVaccinations,
+);
+router.post(
+  "/:id/vaccinations",
+  chvAuth,
+  facilityIsolation,
+  vaccinationsController.createVaccination,
+);
+
 // ── MOBILE APP ROUTES (Mother Auth) ────────────────────────────────────────
 router.post("/", createMother);
 router.post("/upload-photo", uploadProfilePhoto);
@@ -58,5 +78,4 @@ router.put("/:phone", requireMotherAuth, updateMother);
 router.put("/:phone/photo", requireMotherAuth, updatePhoto);
 router.delete("/:phone/partner", requireMotherAuth, removePartner);
 router.put("/:phone/push-token", requireMotherAuth, savePushToken);
-
 module.exports = router;
