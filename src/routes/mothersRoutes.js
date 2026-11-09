@@ -46,7 +46,7 @@ router.put("/:phone/push-token", requireMotherAuth, savePushToken);
 // ANC Visits routes
 router.post(
   "/:id/visits",
-  authenticate,
+  chvAuth,
   facilityIsolation,
   visitsController.createVisit,
 );
