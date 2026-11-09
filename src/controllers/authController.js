@@ -41,7 +41,7 @@ const normalizePhone = (phone) => {
 // ── Request OTP ───────────────────────────────────────────────────────────────
 const requestOtp = asyncHandler(async (req, res) => {
   let { phone } = req.body;
-  phone = normalizephone(phone);
+  phone = normalizePhone(phone);
 
   if (!phone || !/^\+?[1-9]\d{7,14}$/.test(phone)) {
     throw new ApiError(
@@ -75,7 +75,7 @@ const requestOtp = asyncHandler(async (req, res) => {
 // ── Verify OTP ────────────────────────────────────────────────────────────────
 const verifyOtp = asyncHandler(async (req, res) => {
   let { phone, code } = req.body;
-  phone = normalizephone(phone);
+  phone = normalizePhone(phone);
 
   const { rows } = await pool.query(
     `SELECT id, code, expires_at, verified, attempts
