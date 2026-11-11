@@ -72,15 +72,32 @@ exports.updateLabResult = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result.rows[0] });
 });
 // Backend route example
-router.patch("/:id/labs/:labId", authenticate, async (req, res) => {
-  const { labId } = req.params;
-  const { status, value } = req.body; // e.g., status: 'complete'
+exports.approveLab = async (req, res) => {
+  try {
+    const { labId } = req.params;
 
-  await pool.query(
-    "UPDATE lab_results SET status = $1, value = $2, recorded_by = 'Nurse' WHERE id = $3",
-    [status, value, labId],
-  );
-  // TODO: Fire push notification to mother here
+    // Update the lab record in the database
+    const result = await pool.query(
+      `UPDATE lab_results 
+       SET status = 'complete', recorded_by = 'Nurse', recorded_at = NOW() 
+       WHERE id = $1 
+       RETURNING *`,
+      [labId],
+    );
 
-  res.json({ success: true, message: "Lab approved and mother notified." });
-});
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Lab not found" });
+    }
+
+    // Optional: Fire a push notification to the mother here
+
+    res.json({
+      success: true,
+      message: "Lab approved and mother notified.",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Approve lab error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
