@@ -131,14 +131,13 @@ const createNurse = asyncHandler(async (req, res) => {
 // ── 3. Invite Nurse (Facility Admin Method) ───────────────────────────────
 const inviteNurse = asyncHandler(async (req, res) => {
   const { phone, facilityCode } = req.body;
-
   const assignedFacility =
     facilityCode || req.nurse.facility || req.nurse.facility_code;
 
   if (!assignedFacility) {
     throw new ApiError(
       400,
-      "Facility code is required",
+      "Facility code is required to invite a nurse",
       errorCodes.VALIDATION_ERROR,
     );
   }
