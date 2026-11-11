@@ -53,13 +53,14 @@ router.post(
 );
 
 // ── LABS ───────────────────────────────────────────────────────────────────
+router.get("/:id/labs", chvAuth, facilityIsolation, labsController.getLabs);
+router.post("/:id/labs", chvAuth, facilityIsolation, labsController.createLab);
 router.patch(
   "/:id/labs/:labId/approve",
   chvAuth,
   facilityIsolation,
   labsController.approveLab,
 );
-router.post("/:id/labs", chvAuth, facilityIsolation, labsController.createLab);
 
 // ── VACCINATIONS ───────────────────────────────────────────────────────────
 router.get(

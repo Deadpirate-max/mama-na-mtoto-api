@@ -1,103 +1,70 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
+const { ApiError } = require("../utils/ApiError");
 
-function validateLabData({ name, value, status }) {
-  const errors = [];
-  if (!name || name.trim().length === 0)
-    errors.push("Lab test name is required");
-  if (!status || !["pending", "complete", "abnormal"].includes(status)) {
-    errors.push("Status must be pending, complete, or abnormal");
-  }
-  if (value && value.length > 100)
-    errors.push("Lab value too long (max 100 chars)");
-  return errors;
-}
-
+// ── Get all labs for a mother ──────────────────────────────────────────────
 exports.getLabs = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
+  // We use COALESCE just in case some columns are null in the DB
   const result = await pool.query(
-    "SELECT * FROM lab_results WHERE mother_id = $1 ORDER BY test_date DESC NULLS LAST, created_at DESC",
+    `SELECT * FROM lab_results 
+     WHERE mother_id = $1 
+     ORDER BY test_date DESC NULLS LAST`,
     [id],
   );
+
   res.json({ success: true, data: result.rows });
 });
 
+// ── Create a new lab result (Nurse) ────────────────────────────────────────
 exports.createLab = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, value, unit, normalRange, status, testDate, recordedBy } =
     req.body;
 
-  const errors = validateLabData({ name, value, status });
-  if (errors.length > 0) {
-    return res.status(400).json({ success: false, errors });
-  }
-
   const result = await pool.query(
     `INSERT INTO lab_results (
-      mother_id, name, value, unit, normal_range, status,
-      test_date, recorded_by, recorded_at, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-    RETURNING *`,
+       mother_id, name, value, unit, normal_range, status, test_date, recorded_by, recorded_at
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6, $7, $8, NOW()
+     ) RETURNING *`,
     [
       id,
       name,
-      value || "",
-      unit || "",
-      normalRange || "",
-      status || "complete",
-      testDate || new Date().toISOString(),
+      value,
+      unit,
+      normalRange,
+      status,
+      testDate || new Date(),
       recordedBy || "Nurse",
     ],
   );
+
   res.status(201).json({ success: true, data: result.rows[0] });
 });
 
-exports.updateLabResult = asyncHandler(async (req, res) => {
+// ── Approve a mother-entered lab (Nurse Review) ─────────────────────────────
+exports.approveLab = asyncHandler(async (req, res) => {
   const { labId } = req.params;
-  const updates = req.body;
-  const allowed = ["value", "status", "unit", "normal_range", "recorded_by"];
-  const keys = Object.keys(updates).filter((k) => allowed.includes(k));
-  if (keys.length === 0) {
-    return res.status(400).json({ success: false, error: "No valid fields" });
-  }
-  const setClause = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
-  const values = keys.map((k) => updates[k]);
-  values.push(labId);
 
   const result = await pool.query(
-    `UPDATE lab_results SET ${setClause}, recorded_at = NOW()
-     WHERE id = $${values.length} RETURNING *`,
-    values,
+    `UPDATE lab_results 
+     SET status = 'complete', recorded_by = 'Nurse', recorded_at = NOW() 
+     WHERE id = $1 
+     RETURNING *`,
+    [labId],
   );
-  res.json({ success: true, data: result.rows[0] });
-});
-// Backend route example
-exports.approveLab = async (req, res) => {
-  try {
-    const { labId } = req.params;
 
-    // Update the lab record in the database
-    const result = await pool.query(
-      `UPDATE lab_results 
-       SET status = 'complete', recorded_by = 'Nurse', recorded_at = NOW() 
-       WHERE id = $1 
-       RETURNING *`,
-      [labId],
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Lab not found" });
-    }
-
-    // Optional: Fire a push notification to the mother here
-
-    res.json({
-      success: true,
-      message: "Lab approved and mother notified.",
-      data: result.rows[0],
-    });
-  } catch (error) {
-    console.error("Approve lab error:", error);
-    res.status(500).json({ success: false, error: error.message });
+  if (result.rows.length === 0) {
+    throw new ApiError(404, "Lab result not found");
   }
-};
+
+  // TODO: You can add Expo Push Notification logic here to notify the mother
+
+  res.json({
+    success: true,
+    message: "Lab approved and mother notified.",
+    data: result.rows[0],
+  });
+});
