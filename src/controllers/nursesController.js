@@ -135,11 +135,7 @@ const inviteNurse = asyncHandler(async (req, res) => {
     facilityCode || req.nurse.facility || req.nurse.facility_code;
 
   if (!assignedFacility) {
-    throw new ApiError(
-      400,
-      "Facility code is required to invite a nurse",
-      errorCodes.VALIDATION_ERROR,
-    );
+    throw new ApiError(400, "Facility code is required to invite a nurse");
   }
 
   const normalizedPhone = normalizePhone(phone);
@@ -147,9 +143,10 @@ const inviteNurse = asyncHandler(async (req, res) => {
 
   await pool.query(
     `INSERT INTO nurses (
-      phone, phone_hash, facility_code, status, invitation_token, role
-    ) VALUES ($1, $2, $3, 'pending', $4, 'nurse')`,
+      name, phone, phone_hash, facility_code, status, invitation_token, role
+    ) VALUES ($1, $2, $3, $4, 'pending', $5, 'nurse')`,
     [
+      encrypt("Pending Registration"), // 👈 Add the placeholder name
       encrypt(normalizedPhone),
       hashForSearch(normalizedPhone),
       assignedFacility,
@@ -159,7 +156,6 @@ const inviteNurse = asyncHandler(async (req, res) => {
 
   res.json({ success: true, message: "Invitation sent" });
 });
-
 // ── 4. Register from Invitation (Public Route) ────────────────────────────
 const registerFromInvitation = asyncHandler(async (req, res) => {
   const { token } = req.params;
