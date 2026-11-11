@@ -130,10 +130,19 @@ const createNurse = asyncHandler(async (req, res) => {
 
 // ── 3. Invite Nurse (Facility Admin Method) ───────────────────────────────
 const inviteNurse = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
-  const facilityCode = req.nurse.facility;
+  const { phone, facilityCode } = req.body;
 
-  //  Normalize before hashing
+  const assignedFacility =
+    facilityCode || req.nurse.facility || req.nurse.facility_code;
+
+  if (!assignedFacility) {
+    throw new ApiError(
+      400,
+      "Facility code is required",
+      errorCodes.VALIDATION_ERROR,
+    );
+  }
+
   const normalizedPhone = normalizePhone(phone);
   const inviteToken = require("crypto").randomBytes(32).toString("hex");
 
@@ -144,7 +153,7 @@ const inviteNurse = asyncHandler(async (req, res) => {
     [
       encrypt(normalizedPhone),
       hashForSearch(normalizedPhone),
-      facilityCode,
+      assignedFacility,
       inviteToken,
     ],
   );
