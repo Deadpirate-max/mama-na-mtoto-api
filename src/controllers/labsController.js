@@ -71,3 +71,16 @@ exports.updateLabResult = asyncHandler(async (req, res) => {
   );
   res.json({ success: true, data: result.rows[0] });
 });
+// Backend route example
+router.patch("/:id/labs/:labId", authenticate, async (req, res) => {
+  const { labId } = req.params;
+  const { status, value } = req.body; // e.g., status: 'complete'
+
+  await pool.query(
+    "UPDATE lab_results SET status = $1, value = $2, recorded_by = 'Nurse' WHERE id = $3",
+    [status, value, labId],
+  );
+  // TODO: Fire push notification to mother here
+
+  res.json({ success: true, message: "Lab approved and mother notified." });
+});
