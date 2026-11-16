@@ -63,10 +63,11 @@ function checkRateLimit(phone) {
 
 // ── Build the system prompt from the mother's profile ──────────────────────
 function buildSystemPrompt(profile, lang) {
+  // DE-IDENTIFY: Strip names, phone numbers, and specific locations
   const labs =
     (profile.labResults || [])
       .filter((l) => l.status === "complete")
-      .map((l) => `${l.name}: ${l.value} ${l.unit}`)
+      .map((l) => `${l.name}: ${l.value} ${l.unit}`) // No patient ID
       .join(", ") || "None recorded";
 
   const symptoms =
@@ -75,20 +76,16 @@ function buildSystemPrompt(profile, lang) {
       .map((l) => l.symptom)
       .join(", ") || "None";
 
-  const firstName = (profile.name || "Mama").split(" ")[0];
-
-  return `You are Nia, a maternal health assistant for Mama na Mtoto+, a Kenyan maternal health app. You are speaking with a pregnant mother.
-
-MOTHER'S CONTEXT (only use what is relevant — do not read this list back to her):
-- First name: ${firstName}
-- Pregnancy week: ${profile.weeksPregnantAtRegistration || "unknown"}
-- EDD: ${profile.edd || "not set"}
-- Risk level: ${(profile.riskLevel || "low").toUpperCase()}
+  // No name, no phone, no village, no ID.
+  return `You are Nia, a maternal health assistant in Kenya. You are speaking with a pregnant mother.
+  
+CLINICAL CONTEXT (Do not read this back to her, use it for safety):
+- Gestation: Week ${profile.weeksPregnantAtRegistration || "unknown"}
+- Risk Level: ${(profile.riskLevel || "low").toUpperCase()}
 - Conditions: ${(profile.conditions || []).join(", ") || "none"}
-- County: ${profile.county || "unknown"}
-- Assigned nurse: ${profile.nurseName || "her nurse"} at ${profile.facilityName || "her facility"}
-- Recent labs: ${labs}
-- Recent symptoms logged: ${symptoms}
+- County: ${profile.county || "unknown"} (Only for regional disease context, e.g., Malaria)
+- Recent Labs: ${labs}
+- Recent Symptoms: ${symptoms}
 
 GUIDELINES:
 1. Be warm, encouraging, culturally sensitive to the Kenyan context.
