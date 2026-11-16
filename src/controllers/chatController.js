@@ -3,10 +3,26 @@ const { asyncHandler } = require("../utils/asyncHandler");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { decrypt, hashForSearch } = require("../utils/encryption");
 const multer = require("multer");
-const upload = multer({ storage: multer.memoryStorage() });
-const OpenAI = require("openai");
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+const upload = multer({ storage: multer.memoryStorage() });
+
+//  Lazy-load OpenAI so it doesn't crash the server if the key is missing
+let openai = null;
+function getOpenAI() {
+  if (!openai) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new ApiError(
+        500,
+        "Voice transcription is not configured. OPENAI_API_KEY is missing.",
+        errorCodes.INTERNAL_SERVER_ERROR,
+      );
+    }
+    const OpenAI = require("openai");
+    openai = new OpenAI({ apiKey });
+  }
+  return openai;
+}
 // Load DeepSeek key from environment
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const DEEPSEEK_MODEL = "deepseek-flash"; // DeepSeek's main model
@@ -109,7 +125,9 @@ exports.transcribeVoice = [
       type: req.file.mimetype,
     });
 
-    const transcription = await openai.audio.transcriptions.create({
+    // Use the lazy getter here
+    const client = getOpenAI();
+    const transcription = await client.audio.transcriptions.create({
       file: file,
       model: "whisper-1",
       language: req.body.lang === "sw" ? "sw" : "en",
