@@ -1,10 +1,17 @@
+// src/routes/chatRoutes.js
 const express = require("express");
 const router = express.Router();
-const { sendChatMessage } = require("../controllers/chatController");
 const { requireMotherAuth } = require("../middleware/motherAuth");
-const { transcribeVoice } = require("../controllers/chatController");
-// Ensure it looks exactly like this:
+
+const {
+  sendChatMessage,
+  transcribeVoice,
+} = require("../controllers/chatController");
+
+// Existing text route
 router.post("/message", requireMotherAuth, sendChatMessage);
 
+//  Use the correct middleware name (requireMotherAuth) for the voice route
+router.post("/voice", requireMotherAuth, transcribeVoice);
+
 module.exports = router;
-router.post("/voice", authenticate, transcribeVoice);
