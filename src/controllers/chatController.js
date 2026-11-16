@@ -2,12 +2,16 @@ const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { decrypt, hashForSearch } = require("../utils/encryption");
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
+const OpenAI = require("openai");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Load DeepSeek key from environment
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const DEEPSEEK_MODEL = "deepseek-flash"; // DeepSeek's main model
 
-// ── Emergency keyword detection ────────────────────────────────────────────
+// ── Emergency keyword detection (Backend Regex) ────────────────────────────
 const DANGER_PATTERNS = [
   /bleeding|hemorrhage|kutokwa na damu|damu nyingi/i,
   /severe headache|maumivu makali ya kichwa/i,
@@ -57,7 +61,7 @@ function buildSystemPrompt(profile, lang) {
 
   const firstName = (profile.name || "Mama").split(" ")[0];
 
-  return `You are a maternal health assistant for Mama na Mtoto+, a Kenyan maternal health app. You are speaking with a pregnant mother.
+  return `You are Nia, a maternal health assistant for Mama na Mtoto+, a Kenyan maternal health app. You are speaking with a pregnant mother.
 
 MOTHER'S CONTEXT (only use what is relevant — do not read this list back to her):
 - First name: ${firstName}
@@ -76,7 +80,13 @@ GUIDELINES:
 3. Keep replies under 120 words. Be direct and clear.
 4. NEVER diagnose. You provide information and emotional support, not medical advice.
 5. NEVER prescribe medication. If asked about drugs, say: "Speak to your nurse ${profile.nurseName || ""} about medications."
-6. For ANY danger sign (heavy bleeding, severe headache, difficulty breathing, blurred vision, reduced fetal movement, seizure, water breaking) — respond with: "This may be an emergency. Please call your nurse or go to the nearest facility IMMEDIATELY. Emergency line: 0800 723 253."
+6. 🚨 EMERGENCY GUARDRAIL: If the user describes ANY of the following symptoms, you MUST stop your normal response and reply EXACTLY with this format: "DANGER_SIGN_DETECTED: [symptom]".
+   - Severe headache, blurred vision
+   - Vaginal bleeding
+   - Severe abdominal pain
+   - Swelling of the face and hands
+   - Reduced baby movements
+   - Fever
 7. For mental health crises — respond with compassion and give the emergency line.
 8. Always remind her that her nurse is her primary contact for medical questions.
 9. Do NOT discuss politics, religion, or unrelated topics. Politely redirect to pregnancy health.
@@ -90,7 +100,24 @@ function safetyResponse(lang) {
     ? "Hii inaweza kuwa dharura. Tafadhali piga simu kwa muuguzi wako au nenda kwenye kituo cha afya kilicho karibu MARA MOJA. Simu ya dharura: 0800 723 253."
     : "This may be an emergency. Please call your nurse or go to your nearest health facility IMMEDIATELY. Emergency line: 0800 723 253.";
 }
+exports.transcribeVoice = [
+  upload.single("audio"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw new ApiError(400, "No audio file provided");
 
+    const file = new File([req.file.buffer], "audio.m4a", {
+      type: req.file.mimetype,
+    });
+
+    const transcription = await openai.audio.transcriptions.create({
+      file: file,
+      model: "whisper-1",
+      language: req.body.lang === "sw" ? "sw" : "en",
+    });
+
+    res.json({ success: true, text: transcription.text });
+  }),
+];
 // ── POST /api/chat/message ─────────────────────────────────────────────────
 exports.sendChatMessage = asyncHandler(async (req, res) => {
   const { message, history = [], lang = "en" } = req.body;
@@ -117,7 +144,7 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
     );
   }
 
-  // 🚨 Danger sign short-circuit — don't ask AI
+  // 1. Backend Regex Danger Check (Immediate Short-Circuit)
   if (detectDanger(message)) {
     return res.json({
       success: true,
@@ -169,18 +196,18 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
   }
 
   const profile = {
-    // 👇 DECRYPT NAME AND NURSE NAME FOR THE AI
     name: mother?.name ? decrypt(mother.name) : "Mama",
     weeksPregnantAtRegistration: mother?.weeks_pregnant_at_registration,
     edd: mother?.edd,
     county: mother?.county,
     conditions: Array.isArray(mother?.conditions) ? mother.conditions : [],
-    nurseName: mother?.nurse_name ? decrypt(mother.nurse_name) : null, // If nurse name is encrypted
+    nurseName: mother?.nurse_name ? decrypt(mother.nurse_name) : null,
     facilityName: mother?.facility_name,
     riskLevel: mother?.risk_level || "low",
     labResults,
     symptomLogs,
   };
+
   // Trim history to last 10 messages to control token cost
   const trimmedHistory = (history || [])
     .slice(-10)
@@ -193,7 +220,6 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
-    // 1. Make the actual API request
     const apiRes = await fetch("https://api.deepseek.com/anthropic/messages", {
       method: "POST",
       signal: controller.signal,
@@ -221,13 +247,7 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
       throw new Error(`DeepSeek returned ${apiRes.status}`);
     }
 
-    // 2. Parse the JSON response
     const data = await apiRes.json();
-
-    // Log the raw response so we can see what DeepSeek sent
-    console.log("DeepSeek raw response:", JSON.stringify(data).slice(0, 300));
-
-    // 3. Find the text block (skipping the "thinking" block)
     const textBlock = data.content?.find((c) => c.type === "text");
 
     reply =
@@ -244,12 +264,19 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
         : "Sorry, there was a network problem. Please try again.";
   }
 
+  // 2. Catch if the AI detected a danger sign via the prompt
+  let safetyTriggered = false;
+  if (reply.includes("DANGER_SIGN_DETECTED")) {
+    safetyTriggered = true;
+    reply = safetyResponse(lang); // Replace the AI's text with the exact emergency message
+  }
+
   // Log to DB for MoH audit trail (non-fatal if it fails)
   try {
     await pool.query(
       `INSERT INTO chat_logs (mother_phone, user_message, ai_reply, safety_flagged, created_at)
        VALUES ($1, $2, $3, $4, NOW())`,
-      [phone, message.trim(), reply, false],
+      [phone, message.trim(), reply, safetyTriggered],
     );
   } catch (logErr) {
     console.warn("chat_logs insert skipped:", logErr.message);
@@ -257,6 +284,10 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    data: { reply, safetyTriggered: false, flagged: false },
+    data: {
+      reply,
+      safetyTriggered,
+      flagged: safetyTriggered,
+    },
   });
 });
