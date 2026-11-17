@@ -141,6 +141,32 @@ exports.transcribeVoice = [
     res.json({ success: true, text: transcription.text });
   }),
 ];
+// Open AI Text to Speech
+exports.generateTTS = asyncHandler(async (req, res) => {
+  const { text, lang } = req.body;
+
+  if (!text) throw new ApiError(400, "Text is required");
+
+  try {
+    const client = getOpenAI();
+
+    // OpenAI's 'nova' voice is excellent for female, empathetic health assistants
+    const mp3 = await client.audio.speech.create({
+      model: "tts-1", // Or "tts-1-hd" for even higher quality
+      voice: "nova",
+      input: text,
+    });
+
+    const buffer = Buffer.from(await mp3.arrayBuffer());
+
+    // Set headers so the app knows it's an audio file
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(buffer);
+  } catch (error) {
+    console.error("TTS Error:", error);
+    res.status(500).json({ error: "Failed to generate audio" });
+  }
+});
 // ── POST /api/chat/message ─────────────────────────────────────────────────
 exports.sendChatMessage = asyncHandler(async (req, res) => {
   const { message, history = [], lang = "en" } = req.body;
