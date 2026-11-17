@@ -1,0 +1,212 @@
+{
+  "version": "0.1-draft",
+  "note": "DRAFT. Every pattern and urgency must be reviewed by a clinician and by native Swahili speakers (including Sheng and code-switching) before pilot. Prefer over-triggering to missing a danger sign.",
+  "negations": {
+    "en": [
+      "no",
+      "not",
+      "without",
+      "never",
+      "don't",
+      "dont",
+      "didn't",
+      "didnt",
+      "stopped"
+    ],
+    "sw": ["hakuna", "sina", "sijaona", "sijapata", "bila", "hapana", "si"]
+  },
+  "flags": [
+    {
+      "id": "heavy_bleeding",
+      "urgency": "go_now",
+      "topic": "bleeding",
+      "en": [
+        "heavy\\s+bleeding",
+        "bleeding\\s+(a\\s+lot|heavily|badly)",
+        "soaking\\s+(through\\s+)?(a\\s+)?pads?",
+        "passing\\s+(large\\s+)?clots?",
+        "(lot|lots)\\s+of\\s+blood"
+      ],
+      "sw": [
+        "damu\\s+nyingi",
+        "(natokwa|ninatokwa|nimetokwa)\\s+(na\\s+)?damu",
+        "kutokwa\\s+(na\\s+)?damu\\s+nyingi",
+        "vidonge\\s+vya\\s+damu"
+      ]
+    },
+    {
+      "id": "bleeding",
+      "urgency": "call_nurse",
+      "topic": "bleeding",
+      "en": [
+        "bleeding",
+        "spotting",
+        "blood\\s+(in|on)\\s+(my\\s+)?(underwear|pants|pad)"
+      ],
+      "sw": ["kutokwa\\s+(na\\s+)?damu", "naona\\s+damu", "damu\\s+inatoka"]
+    },
+    {
+      "id": "seizure",
+      "urgency": "go_now",
+      "topic": "seizure",
+      "en": [
+        "seizures?",
+        "convulsions?",
+        "(had|having|got)\\s+(a\\s+)?fits?\\b",
+        "shaking\\s+and\\s+(fell|collapsed)"
+      ],
+      "sw": ["degedege", "kifafa", "nimeanguka\\s+na\\s+kutetemeka"]
+    },
+    {
+      "id": "severe_headache",
+      "urgency": "go_now",
+      "topic": "headache",
+      "en": [
+        "severe\\s+headache",
+        "worst\\s+headache",
+        "headache\\s+(that\\s+)?(won'?t|will\\s+not)\\s+go\\s+away"
+      ],
+      "sw": [
+        "maumivu\\s+makali\\s+ya\\s+kichwa",
+        "kichwa\\s+kinauma\\s+sana",
+        "kichwa\\s+kinauma\\s+kupita\\s+kiasi"
+      ]
+    },
+    {
+      "id": "vision",
+      "urgency": "go_now",
+      "topic": "vision",
+      "en": [
+        "blurr?(ed|y)\\s+vision",
+        "can'?t\\s+see\\s+(well|properly)",
+        "seeing\\s+(spots|flashing|stars)",
+        "flashing\\s+lights"
+      ],
+      "sw": [
+        "naona\\s+ukungu",
+        "sioni\\s+vizuri",
+        "macho\\s+yanafifia",
+        "naona\\s+(madoa|mwanga)"
+      ]
+    },
+    {
+      "id": "breathing",
+      "urgency": "go_now",
+      "topic": "breathing",
+      "en": [
+        "(can'?t|cannot|struggling\\s+to)\\s+breathe",
+        "short(ness)?\\s+of\\s+breath",
+        "difficulty\\s+breathing",
+        "trouble\\s+breathing"
+      ],
+      "sw": [
+        "siwezi\\s+kupumua",
+        "napumua\\s+kwa\\s+shida",
+        "nashindwa\\s+kupumua",
+        "kupumua\\s+kwa\\s+shida"
+      ]
+    },
+    {
+      "id": "reduced_movement",
+      "urgency": "go_now",
+      "topic": "baby_movement",
+      "en": [
+        "baby\\s+(is\\s+)?(not|isn'?t|isnt|hasn'?t|hasnt|has\\s+not)\\s+(moving|kicking|moved|kicked)",
+        "(no|less|reduced)\\s+(baby\\s+)?(movement|kicks)",
+        "can'?t\\s+feel\\s+(the\\s+)?baby",
+        "haven'?t\\s+felt\\s+(the\\s+)?baby\\s+(move|kick)"
+      ],
+      "sw": [
+        "mtoto\\s+hasogei",
+        "mtoto\\s+hachezi",
+        "mtoto\\s+amepunguza\\s+kucheza",
+        "sisikii\\s+mtoto"
+      ]
+    },
+    {
+      "id": "waters_broke",
+      "urgency": "go_now",
+      "topic": "labour",
+      "en": [
+        "(my\\s+)?waters?\\s+(have\\s+)?broke(n)?",
+        "leaking\\s+(fluid|water)",
+        "fluid\\s+(is\\s+)?leaking"
+      ],
+      "sw": ["maji\\s+(yamevunjika|yametoka|yanavuja)", "ninavuja\\s+maji"]
+    },
+    {
+      "id": "severe_abdominal_pain",
+      "urgency": "go_now",
+      "topic": "abdominal_pain",
+      "en": [
+        "severe\\s+(stomach|abdominal|belly|tummy)\\s+pain",
+        "(stomach|belly|tummy)\\s+pain\\s+(is\\s+)?(very\\s+)?(bad|severe|unbearable)"
+      ],
+      "sw": ["tumbo\\s+linauma\\s+sana", "maumivu\\s+makali\\s+ya\\s+tumbo"]
+    },
+    {
+      "id": "chest_pain",
+      "urgency": "go_now",
+      "topic": "chest_pain",
+      "en": ["chest\\s+pain", "pain\\s+in\\s+(my\\s+)?chest"],
+      "sw": ["maumivu\\s+ya\\s+kifua", "kifua\\s+kinauma"]
+    },
+    {
+      "id": "fever",
+      "urgency": "call_nurse",
+      "topic": "fever",
+      "en": ["fever", "high\\s+temperature", "burning\\s+up"],
+      "sw": ["homa", "mwili\\s+unawaka"]
+    },
+    {
+      "id": "swelling",
+      "urgency": "call_nurse",
+      "topic": "swelling",
+      "en": ["swollen\\s+(face|hands)", "(face|hands)\\s+(is|are)\\s+swollen"],
+      "sw": ["(uso|mikono)\\s+\\w*vimba"]
+    },
+    {
+      "id": "newborn_danger",
+      "urgency": "go_now",
+      "topic": "newborn",
+      "en": [
+        "baby\\s+(is\\s+)?(not\\s+breathing|turning\\s+blue|floppy|limp)",
+        "newborn\\s+(not\\s+breathing|fits)"
+      ],
+      "sw": [
+        "mtoto\\s+hapumui",
+        "mtoto\\s+amebadilika\\s+rangi",
+        "mtoto\\s+amelegea"
+      ]
+    },
+    {
+      "id": "newborn_feeding",
+      "urgency": "call_nurse",
+      "topic": "newborn",
+      "en": [
+        "baby\\s+(is\\s+)?(not|won'?t)\\s+(feeding|feed|latching|suck)",
+        "baby\\s+(is\\s+)?yellow"
+      ],
+      "sw": ["mtoto\\s+hanyonyi", "mtoto\\s+ana\\s+manjano"]
+    },
+    {
+      "id": "crisis",
+      "urgency": "call_nurse",
+      "topic": "mental_health",
+      "crisis": true,
+      "en": [
+        "want\\s+to\\s+die",
+        "kill\\s+myself",
+        "end\\s+my\\s+life",
+        "suicid",
+        "no\\s+reason\\s+to\\s+live"
+      ],
+      "sw": [
+        "nataka\\s+kufa",
+        "kujiua",
+        "sitaki\\s+kuishi",
+        "nimechoka\\s+na\\s+maisha"
+      ]
+    }
+  ]
+}
