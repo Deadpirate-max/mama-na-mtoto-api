@@ -106,6 +106,7 @@ const buildMotherResponse = async (rawMother) => {
     urineGlucose: v.urine_glucose,
     fetalHeartRate: v.fetal_heart_rate,
     nextAppointmentDate: v.next_appointment,
+    medications: v.medications || [],
     notes: v.notes,
     recordedBy: v.recorded_by,
     recordedAt: v.recorded_at,

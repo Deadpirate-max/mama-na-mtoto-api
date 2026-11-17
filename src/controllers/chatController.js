@@ -36,7 +36,10 @@ const DANGER_PATTERNS = [
   /no movement|baby (is )?not moving|mtoto hasogei|hajasogea/i,
   /faint|passed out|kuzirai/i,
   /convulsion|seizure|degedege/i,
-  /water broke|maji yametoka/i,
+  /water broke|maji yametoka|water (is )?coming out|maji yanatoka/i,
+  /chest pain|heart (is )?beating (very )?fast|maumivu ya kifua|moyo .* kupa haraka|palpitation/i,
+  /vomiting (continuously|a lot|every)|cannot keep (water|food) down|ninatapika kila mara|siwezi .* kuhifadhi/i,
+  /(leg|mguu) .*(swollen|swelling|uvimbe|umevimba).*(painful|pain|uma)|one leg swollen|dvt/i,
   /suicid|kill myself|kujiua|kujidhuru/i,
 ];
 
@@ -47,7 +50,7 @@ function detectDanger(text) {
 // ── In-memory rate limiter ─────────────────────────────────────────────────
 const rateLimitMap = new Map();
 const WINDOW_MS = 60 * 1000;
-const MAX_PER_WINDOW = 10;
+const MAX_PER_WINDOW = 150;
 
 function checkRateLimit(phone) {
   const now = Date.now();
@@ -95,11 +98,16 @@ GUIDELINES:
 5. NEVER prescribe medication. If asked about drugs, say: "Speak to your nurse ${profile.nurseName || ""} about medications."
 6. 🚨 EMERGENCY GUARDRAIL: If the user describes ANY of the following symptoms, you MUST stop your normal response and reply EXACTLY with this format: "DANGER_SIGN_DETECTED: [symptom]".
    - Severe headache, blurred vision
-   - Vaginal bleeding
+   - Vaginal bleeding (during pregnancy or postpartum)
    - Severe abdominal pain
    - Swelling of the face and hands
-   - Reduced baby movements
-   - Fever
+   - Reduced or absent baby movements
+   - High fever
+   - Convulsions or seizures
+   - Water breaking before labor begins (PROM)
+   - Chest pain, heart palpitations, or difficulty breathing
+   - Severe vomiting that prevents keeping food or water down
+   - Sudden swelling and pain in ONE leg (DVT)
 7. For mental health crises — respond with compassion and give the emergency line.
 8. Always remind her that her nurse is her primary contact for medical questions.
 9. Do NOT discuss politics, religion, or unrelated topics. Politely redirect to pregnancy health.

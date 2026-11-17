@@ -1,24 +1,34 @@
+// setup-test-user.js
 require("dotenv").config();
 const { encrypt, hashForSearch } = require("./src/utils/encryption");
-const bcrypt = require("bcryptjs");
 
-async function generateNurse() {
-  const phone = "+254799999999"; // The phone number Jane will use to log in
-  const pin = "1234"; // The PIN Jane will use
+const testPhone = "+254712345678";
 
-  // 1. Encrypt the phone for storage and generate the blind index
-  const encryptedPhone = encrypt(phone);
-  const phoneHash = hashForSearch(phone);
+const encryptedPhone = encrypt(testPhone);
+const phoneHash = hashForSearch(testPhone);
+const encryptedName = encrypt("Test Patient");
 
-  // 2. Hash the PIN
-  const salt = await bcrypt.genSalt(10);
-  const pinHash = await bcrypt.hash(pin, salt);
+console.log("=========================================");
+console.log("COPY AND PASTE THIS SQL INTO PGADMIN:");
+console.log("=========================================\n");
 
-  console.log("\n--- COPY THE SQL BELOW AND RUN IT IN PGADMIN ---\n");
-  // Changed full_name to name
-  console.log(`INSERT INTO nurses (name, phone, phone_hash, pin_hash, role, facility_code, status) 
-VALUES ('Nurse Jane', '${encryptedPhone}', '${phoneHash}', '${pinHash}', 'nurse', 'MNH-001', 'active');`);
-  console.log("\n------------------------------------------------\n");
-}
+// 👇 Removed risk_level from the query
+console.log(`
+INSERT INTO mothers (
+  name, 
+  phone, 
+  phone_hash, 
+  weeks_pregnant_at_registration, 
+  county,
+  registration_date
+) VALUES (
+  '${encryptedName}', 
+  '${encryptedPhone}', 
+  '${phoneHash}', 
+  28, 
+  'Nairobi',
+  NOW()
+) ON CONFLICT (phone_hash) DO NOTHING;
+`);
 
-generateNurse();
+console.log("=========================================");

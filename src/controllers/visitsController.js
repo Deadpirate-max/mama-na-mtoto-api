@@ -2,7 +2,7 @@ const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { getNextAncWeek, getDateForWeek } = require("../utils/ancSchedule");
 
-// ── 🛡️ Clinical validation ───────────────────────────────────────────────
+// ── Clinical validation ───────────────────────────────────────────────
 function validateVisitData({
   bpSystolic,
   bpDiastolic,
@@ -50,12 +50,14 @@ exports.createVisit = asyncHandler(async (req, res) => {
     urineProtein,
     urineGlucose,
     fetalHeartRate,
+    finalNextAppointment,
     nextAppointment,
+    medications,
     notes,
     recordedBy,
   } = req.body;
 
-  // 🛡️ Validate
+  //  Validate
   const errors = validateVisitData({
     bpSystolic,
     bpDiastolic,
@@ -67,7 +69,7 @@ exports.createVisit = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, errors });
   }
 
-  // 🗓️ Auto-calculate current gestation week
+  //  Auto-calculate current gestation week
   let finalWeek = scheduledWeek;
   let motherLmp = null;
   try {
@@ -105,11 +107,11 @@ exports.createVisit = asyncHandler(async (req, res) => {
     console.warn("Could not auto-calculate gestation week:", e.message);
   }
 
-  // 🗓️ Auto-compute NEXT visit
+  // Auto-compute NEXT visit
   let computedNextWeek = null;
   let computedNextAppointment = nextAppointment || null;
 
-  // 🛡️ Use explicit null check — `0` is a valid week (just very early)
+  // Use explicit null check — `0` is a valid week (just very early)
   if (finalWeek !== null && finalWeek !== undefined) {
     computedNextWeek = getNextAncWeek(finalWeek);
     if (computedNextWeek && motherLmp) {
@@ -122,12 +124,12 @@ exports.createVisit = asyncHandler(async (req, res) => {
       mother_id, visit_number, scheduled_week, visit_date, attended,
       bp_systolic, bp_diastolic, weight, fundal_height,
       urine_protein, urine_glucose, fetal_heart_rate,
-      next_appointment, notes, recorded_by, recorded_at, created_at
+      next_appointment, medications, notes, recorded_by, recorded_at, created_at
     ) VALUES (
       $1, $2, $3, $4, $5,
       $6, $7, $8, $9,
       $10, $11, $12,
-      $13, $14, $15, NOW(), NOW()
+      $13, $14, $15, $16, NOW(), NOW()
     ) RETURNING *`,
     [
       id,
@@ -142,12 +144,12 @@ exports.createVisit = asyncHandler(async (req, res) => {
       urineProtein || null,
       urineGlucose || null,
       fetalHeartRate || null,
-      computedNextAppointment || null,
-      notes || "",
-      recordedBy || "Nurse",
+      finalNextAppointment || null, // $13 (next_appointment)
+      JSON.stringify(medications || []), // $14 (medications)
+      notes || "", // $15 (notes)
+      recordedBy || "Nurse", // $16 (recorded_by)
     ],
   );
-
   res.status(201).json({
     success: true,
     data: {
@@ -172,6 +174,7 @@ exports.updateVisit = asyncHandler(async (req, res) => {
     "urine_glucose",
     "fetal_heart_rate",
     "next_appointment",
+    "finalNextAppointment",
     "notes",
     "recorded_by",
   ];
