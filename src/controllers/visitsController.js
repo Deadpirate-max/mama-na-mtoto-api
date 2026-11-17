@@ -146,10 +146,10 @@ exports.createVisit = asyncHandler(async (req, res) => {
       urineProtein || null,
       urineGlucose || null,
       fetalHeartRate || null,
-      finalNextAppointment || null, // $13 (next_appointment)
-      JSON.stringify(medications || []), // $14 (medications)
-      notes || "", // $15 (notes)
-      recordedBy || "Nurse", // $16 (recorded_by)
+      computedNextAppointment || null,
+      JSON.stringify(medications || []),
+      notes || "",
+      recordedBy || "Nurse",
     ],
   );
   res.status(201).json({
