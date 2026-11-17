@@ -57,18 +57,6 @@ exports.createVisit = asyncHandler(async (req, res) => {
     recordedBy,
   } = req.body;
 
-  //  Validate
-  const errors = validateVisitData({
-    bpSystolic,
-    bpDiastolic,
-    weight,
-    fundalHeight,
-    fetalHeartRate,
-  });
-  if (errors.length > 0) {
-    return res.status(400).json({ success: false, errors });
-  }
-
   //  Auto-calculate current gestation week
   let finalWeek = scheduledWeek;
   let motherLmp = null;
@@ -111,11 +99,25 @@ exports.createVisit = asyncHandler(async (req, res) => {
   let computedNextWeek = null;
   let computedNextAppointment = nextAppointment || null;
 
-  // Use explicit null check — `0` is a valid week (just very early)
   if (finalWeek !== null && finalWeek !== undefined) {
     computedNextWeek = getNextAncWeek(finalWeek);
-    if (computedNextWeek && motherLmp) {
-      computedNextAppointment = getDateForWeek(motherLmp, computedNextWeek);
+
+    // If nurse didn't pick a date, calculate it
+    if (computedNextWeek && !computedNextAppointment) {
+      if (motherLmp) {
+        // Base it on LMP
+        computedNextAppointment = getDateForWeek(motherLmp, computedNextWeek);
+      } else if (
+        mother.registration_date &&
+        mother.weeks_pregnant_at_registration
+      ) {
+        // Fallback: Base it on registration date + weeks pregnant
+        const regDate = new Date(mother.registration_date);
+        const weeksDiff =
+          computedNextWeek - mother.weeks_pregnant_at_registration;
+        regDate.setDate(regDate.getDate() + weeksDiff * 7);
+        computedNextAppointment = regDate.toISOString().split("T")[0];
+      }
     }
   }
 

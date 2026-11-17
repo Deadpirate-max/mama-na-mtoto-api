@@ -21,10 +21,11 @@ const NEG = new Set(
 // a false alarm costs a phone call, a missed danger sign can cost a life.
 function negated(text, idx) {
   const tokens = text.slice(0, idx).trim().split(" ");
-  for (let i = tokens.length - 1, seen = 0; i >= 0 && seen < 2; i--, seen++) {
+  for (let i = tokens.length - 1, seen = 0; i >= 0 && seen < 4; i--, seen++) {
     const raw = tokens[i];
-    if (/[,.;!?]$/.test(raw)) return false; // clause boundary
-    if (NEG.has(raw.replace(/[^\p{L}']/gu, ""))) return true;
+    if (/[,.;!?]$/.test(raw) && seen > 0) return false; // clause boundary
+    const cleanToken = raw.replace(/[^\p{L}']/gu, "").toLowerCase();
+    if (NEG.has(cleanToken)) return true;
   }
   return false;
 }
