@@ -4,6 +4,7 @@ const { asyncHandler } = require("../utils/asyncHandler");
 const { calculateRisk } = require("../utils/riskEngine");
 const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
 const { mergeProfile } = require("../utils/mergeProfile");
+const { logAction } = require("../services/auditService");
 
 // ── Normalize Kenyan phone ─────────────────────────────────────────────────
 const normalizePhone = (phone) => {
@@ -635,6 +636,15 @@ const getMotherById = asyncHandler(async (req, res) => {
 
   const data = await buildMotherResponse(rows[0]);
   res.status(200).json({ success: true, data });
+  await logAction({
+    userId: req.nurse.id,
+    role: req.nurse.role,
+    action: "view",
+    entityType: "mother",
+    entityId: id,
+    details: { facility: req.nurse.facility_code },
+    ip: req.ip,
+  });
 });
 
 // ── Get All Mothers ───────────────────────────────────────────────────────
