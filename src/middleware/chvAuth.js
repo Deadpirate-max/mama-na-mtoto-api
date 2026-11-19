@@ -1,7 +1,6 @@
 const jwt = require("jsonwebtoken");
 const pool = require("../db/pool");
 
-// ❌ REMOVE the fallback secret. Fail loudly if unset.
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is not set — refusing to start");
 }
@@ -43,7 +42,6 @@ exports.authenticate = async (req, res, next) => {
         .json({ success: false, error: "Account is not active" });
     }
 
-    // ✅ Expose BOTH shapes so any controller written against the old auth.js keeps working
     req.nurse = {
       id: nurse.id,
       name: nurse.name,
@@ -54,6 +52,14 @@ exports.authenticate = async (req, res, next) => {
     };
     next();
   } catch (err) {
+    console.error("🚨 JWT VERIFY FAILED");
+    console.error("   → Error:", err.message);
+    console.error(
+      "   → Token (first 30 chars):",
+      req.headers.authorization?.slice(7, 37),
+    );
+    console.error("   → Server JWT_SECRET length:", JWT_SECRET?.length);
+    console.error("   → Server JWT_SECRET (last 5):", JWT_SECRET?.slice(-5));
     return res
       .status(401)
       .json({ success: false, error: "Invalid or expired token" });
