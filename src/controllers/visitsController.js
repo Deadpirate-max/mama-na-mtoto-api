@@ -1,6 +1,7 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { getNextAncWeek, getDateForWeek } = require("../utils/ancSchedule");
+const { logAction } = require("../services/auditService");
 
 // ── Clinical validation ───────────────────────────────────────────────
 function validateVisitData({
@@ -31,6 +32,15 @@ exports.getVisits = asyncHandler(async (req, res) => {
     "SELECT * FROM anc_visits WHERE mother_id = $1 ORDER BY visit_number ASC",
     [id],
   );
+  await logAction({
+    userId: req.nurse.id,
+    role: req.nurse.role,
+    action: "view",
+    entityType: "mother",
+    entityId: id,
+    details: { facility_code: req.nurse.facility_code },
+    ip: req.ip,
+  });
   res.json({ success: true, data: result.rows });
 });
 
@@ -152,6 +162,15 @@ exports.createVisit = asyncHandler(async (req, res) => {
       recordedBy || "Nurse",
     ],
   );
+  await logAction({
+    userId: req.nurse.id,
+    role: req.nurse.role,
+    action: "view",
+    entityType: "mother",
+    entityId: id,
+    details: { facility_code: req.nurse.facility_code },
+    ip: req.ip,
+  });
   res.status(201).json({
     success: true,
     data: {

@@ -1,11 +1,9 @@
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
 
-// 👇 HARDCODE THE SECRET HERE (match what's in .env or the fallback)
 const JWT_SECRET = process.env.JWT_SECRET || "mama_na_mtoto_secret_2026";
 console.log(`🔑 chvAuth loaded | JWT_SECRET length: ${JWT_SECRET.length}`);
 
-// Use the real nurse ID from your DB
 const realNurseId = 4;
 
 const token = jwt.sign(

@@ -1,6 +1,7 @@
 const pool = require("../db/pool");
 const { asyncHandler } = require("../utils/asyncHandler");
 const { ApiError } = require("../utils/ApiError");
+const { logAction } = require("../services/auditService");
 
 // ── Get all labs for a mother ──────────────────────────────────────────────
 exports.getLabs = asyncHandler(async (req, res) => {
@@ -13,6 +14,15 @@ exports.getLabs = asyncHandler(async (req, res) => {
      ORDER BY test_date DESC NULLS LAST`,
     [id],
   );
+  await logAction({
+    userId: req.nurse.id,
+    role: req.nurse.role,
+    action: "view",
+    entityType: "mother",
+    entityId: id,
+    details: { facility_code: req.nurse.facility_code },
+    ip: req.ip,
+  });
 
   res.json({ success: true, data: result.rows });
 });
