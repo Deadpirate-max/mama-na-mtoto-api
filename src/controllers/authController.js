@@ -108,7 +108,7 @@ const verifyOtp = asyncHandler(async (req, res) => {
   // CHECK IF MOTHER EXISTS USING PHONE HASH
   const phoneHash = hashForSearch(phone);
   const motherCheck = await pool.query(
-    "SELECT id FROM mothers WHERE phone_hash = $1",
+    "SELECT id FROM mothers WHERE phone_hash = $1 AND deleted_at IS NULL",
     [phoneHash],
   );
   const isNewUser = motherCheck.rows.length === 0;
@@ -140,7 +140,7 @@ const setPin = async (req, res) => {
 
     // UPDATE USING PHONE HASH
     const result = await pool.query(
-      `UPDATE mothers SET pin_hash = $1, pin_set = TRUE WHERE phone_hash = $2 RETURNING phone`,
+      `UPDATE mothers SET pin_hash = $1, pin_set = TRUE WHERE phone_hash = $2 AND deleted_at IS NULL RETURNING phone`,
       [hashedPin, phoneHash],
     );
 
@@ -167,7 +167,7 @@ const verifyPin = async (req, res) => {
 
     // SELECT USING PHONE HASH
     const result = await pool.query(
-      "SELECT pin_hash, pin_set FROM mothers WHERE phone_hash = $1",
+      "SELECT pin_hash, pin_set FROM mothers WHERE phone_hash = $1 AND deleted_at IS NULL",
       [phoneHash],
     );
 
@@ -200,7 +200,7 @@ const recoverAccount = asyncHandler(async (req, res) => {
   const nameHash = hashForSearch(fullName.trim().toLowerCase());
 
   const result = await pool.query(
-    `SELECT id, phone FROM mothers WHERE id_number_hash = $1 AND name_hash = $2`,
+    `SELECT id, phone FROM mothers WHERE id_number_hash = $1 AND name_hash = $2 AND deleted_at IS NULL`,
     [idHash, nameHash],
   );
 
@@ -274,7 +274,7 @@ const confirmRecovery = asyncHandler(async (req, res) => {
   // UPDATE PHONE, ENCRYPT NEW PHONE, UPDATE HASH
   const { encrypt } = require("../utils/encryption");
   await pool.query(
-    `UPDATE mothers SET phone = $1, phone_hash = $2, pin_hash = $3, pin_set = $4 WHERE phone_hash = $5`,
+    `UPDATE mothers SET phone = $1, phone_hash = $2, pin_hash = $3, pin_set = $4 WHERE phone_hash = $5 AND deleted_at IS NULL`,
     [encrypt(normalizedNew), newPhoneHash, hashedPin, pinSet, oldPhoneHash],
   );
 

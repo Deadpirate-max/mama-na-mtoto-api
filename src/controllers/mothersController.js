@@ -534,7 +534,7 @@ const updateMother = async (req, res) => {
   values.push(phoneHash);
 
   try {
-    const query = `UPDATE mothers SET ${setClause}, updated_at = NOW() WHERE phone_hash = $${keys.length + 1} RETURNING id`;
+    const query = `UPDATE mothers SET ${setClause}, updated_at = NOW() WHERE phone_hash = $${keys.length + 1} AND deleted_at IS NULL RETURNING id`;
     const result = await pool.query(query, values);
     if (result.rows.length === 0)
       return res
@@ -578,7 +578,7 @@ const resolveConflict = asyncHandler(async (req, res) => {
     finalValue = encrypt(final);
 
   await pool.query(
-    `UPDATE mothers SET "${field}" = $1, field_conflicts = field_conflicts - $2 WHERE phone_hash = $3`,
+    `UPDATE mothers SET "${field}" = $1, field_conflicts = field_conflicts - $2 WHERE phone_hash = $3 AND deleted_at IS NULL`,
     [finalValue, field, phoneHash],
   );
   res.json({ success: true });
@@ -599,7 +599,7 @@ const getMotherByPhone = asyncHandler(async (req, res) => {
 
   const phoneHash = hashForSearch(normalizedPhone);
   const { rows } = await pool.query(
-    "SELECT * FROM mothers WHERE phone_hash = $1",
+    "SELECT * FROM mothers WHERE phone_hash = $1 AND deleted_at IS NULL",
     [phoneHash],
   );
   if (rows.length === 0)
@@ -617,9 +617,10 @@ const getMotherById = asyncHandler(async (req, res) => {
   if (!uuidRegex.test(id))
     throw new ApiError(400, "Invalid ID", errorCodes.BAD_REQUEST);
 
-  const { rows } = await pool.query("SELECT * FROM mothers WHERE id = $1", [
-    id,
-  ]);
+  const { rows } = await pool.query(
+    "SELECT * FROM mothers WHERE id = $1 AND deleted_at is NULL",
+    [id],
+  );
   if (rows.length === 0)
     throw new ApiError(404, `No mother found`, errorCodes.NOT_FOUND);
 
@@ -649,7 +650,7 @@ const getMotherById = asyncHandler(async (req, res) => {
 
 // ── Get All Mothers ───────────────────────────────────────────────────────
 const getAllMothers = asyncHandler(async (req, res) => {
-  let query = "SELECT * FROM mothers WHERE 1=1";
+  let query = "SELECT * FROM mothers WHERE deleted_at IS NULL";
   const params = [];
 
   if (req.facilityFilter) {
@@ -685,7 +686,7 @@ const getAllMothers = asyncHandler(async (req, res) => {
 // ── Search Mothers ─────────────────────────────────────────────────────────
 const searchMothers = asyncHandler(async (req, res) => {
   const q = (req.query.q || "").trim();
-  let query = "SELECT * FROM mothers WHERE 1=1";
+  let query = "SELECT * FROM mothers WHERE deleted_at IS NULL";
   const params = [];
   const conditions = [];
 
@@ -765,7 +766,7 @@ const uploadProfilePhoto = async (req, res) => {
       .from("profiles")
       .getPublicUrl(filename);
     await pool.query(
-      "UPDATE mothers SET profile_photo_url = $1 WHERE phone_hash = $2",
+      "UPDATE mothers SET profile_photo_url = $1 WHERE phone_hash = $2 AND deleted_at IS NULL",
       [urlData.publicUrl, phoneHash],
     );
 
@@ -785,7 +786,7 @@ const updatePhoto = asyncHandler(async (req, res) => {
   }
 
   await pool.query(
-    "UPDATE mothers SET photo_data = $1, updated_at = NOW() WHERE phone_hash = $2",
+    "UPDATE mothers SET photo_data = $1, updated_at = NOW() WHERE phone_hash = $2 AND deleted_at IS NULL",
     [photo ? encrypt(photo) : null, phoneHash],
   );
 
@@ -798,7 +799,7 @@ const removePartner = asyncHandler(async (req, res) => {
   const phoneHash = hashForSearch(normalizedPhone);
 
   await pool.query(
-    "UPDATE mothers SET partner_name = NULL, partner_phone = NULL, updated_at = NOW() WHERE phone_hash = $1",
+    "UPDATE mothers SET partner_name = NULL, partner_phone = NULL, updated_at = NOW() WHERE phone_hash = $1 AND deleted_at IS NULL",
     [phoneHash],
   );
 
@@ -810,20 +811,28 @@ const deleteMother = asyncHandler(async (req, res) => {
   const normalizedPhone = normalizePhone(phone);
   const phoneHash = hashForSearch(normalizedPhone);
 
-  // This deletes the mother. (Ensure your DB has ON DELETE CASCADE for visits, labs, alerts, etc.)
+  // Soft delete: Mark as deleted, anonymize PII, and free up the phone hash
   const result = await pool.query(
-    "DELETE FROM mothers WHERE phone_hash = $1 RETURNING id",
+    `UPDATE mothers 
+     SET 
+       deleted_at = NOW(),
+       name = 'Deleted User',
+       id_number = NULL,
+       partner_name = NULL,
+       partner_phone = NULL,
+       photo_data = NULL,
+       profile_photo_url = NULL,
+       phone_hash = CONCAT(phone_hash, '_deleted_', EXTRACT(EPOCH FROM NOW()))
+     WHERE phone_hash = $1 AND deleted_at IS NULL 
+     RETURNING id`,
     [phoneHash],
   );
 
   if (result.rows.length === 0) {
-    throw new ApiError(404, "Mother not found");
+    throw new ApiError(404, "Mother not found or already deleted");
   }
 
-  res.json({
-    success: true,
-    message: "Account and all associated data deleted.",
-  });
+  res.json({ success: true, message: "Account anonymized and deleted." });
 });
 const savePushToken = asyncHandler(async (req, res) => {
   const { phone } = req.params;
@@ -831,9 +840,10 @@ const savePushToken = asyncHandler(async (req, res) => {
   const phoneHash = hashForSearch(normalizePhone(phone));
 
   await pool.query(
-    "UPDATE mothers SET push_token = $1, updated_at = NOW() WHERE phone_hash = $2",
+    "UPDATE mothers SET push_token = $1, updated_at = NOW() WHERE phone_hash = $2 AND deleted_at IS NULL",
     [token, phoneHash],
   );
+
   res.json({ success: true });
 });
 

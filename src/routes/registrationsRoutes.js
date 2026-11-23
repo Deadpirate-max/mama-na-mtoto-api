@@ -35,8 +35,10 @@ router.get("/:code", async (req, res) => {
          n.name as nurse_name, n.phone as nurse_phone
        FROM registration_codes rc
        LEFT JOIN nurses n ON rc.nurse_id::text = n.id::text
+       LEFT JOIN mothers m ON m.phone_hash = hashForSearch(rc.mother_phone) 
        WHERE TRIM(UPPER(rc.code)) = $1 
-       AND (rc.used = FALSE OR rc.used IS NULL)`,
+       AND (rc.used = FALSE OR rc.used IS NULL)
+       AND (m.deleted_at IS NULL OR m.id IS NULL)`,
       [cleanCode],
     );
 
