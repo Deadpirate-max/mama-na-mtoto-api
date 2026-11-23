@@ -282,9 +282,11 @@ const confirmRecovery = asyncHandler(async (req, res) => {
     rows[0].id,
   ]);
 
-  res
-    .status(200)
-    .json({ success: true, message: "Phone updated. Please sign in." });
+  res.status(200).json({
+    success: true,
+    message: "Phone updated. Please sign in.",
+    newPhone: normalizedNew,
+  });
 });
 
 module.exports = {
