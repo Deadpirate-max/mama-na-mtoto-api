@@ -116,7 +116,7 @@ function buildSystemPrompt(profile, lang) {
   return `You are Nia, a maternal health assistant in Kenya, talking to a pregnant woman or new mother.
 
 BACKGROUND (use it for safety, never read it back to her):
-- Gestation: week ${profile.weeksPregnantAtRegistration || "unknown"}
+- Gestation: Week ${profile.weeksPregnant || "unknown"}
 - Risk level: ${(profile.riskLevel || "low").toUpperCase()}
 - Conditions: ${(profile.conditions || []).join(", ") || "none"}
 - County: ${profile.county || "unknown"} (only for regional context such as malaria)
@@ -386,9 +386,33 @@ exports.sendChatMessage = asyncHandler(async (req, res) => {
       }));
     } catch (_) {}
   }
+  let currentWeek = 0;
+  if (mother) {
+    if (mother.lmp_date) {
+      const lmpDate = new Date(mother.lmp_date);
+      const diffDays = Math.floor(
+        (Date.now() - lmpDate.getTime()) / (1000 * 60 * 60 * 24),
+      );
+      currentWeek = Math.max(0, Math.min(42, Math.floor(diffDays / 7)));
+    } else if (
+      mother.registration_date &&
+      mother.weeks_pregnant_at_registration
+    ) {
+      const regDate = new Date(mother.registration_date);
+      const weeksSinceReg = Math.floor(
+        (Date.now() - regDate.getTime()) / (7 * 24 * 60 * 60 * 1000),
+      );
+      currentWeek = Math.min(
+        42,
+        mother.weeks_pregnant_at_registration + weeksSinceReg,
+      );
+    } else {
+      currentWeek = mother.weeks_pregnant_at_registration || 0;
+    }
+  }
 
   const profile = {
-    weeksPregnantAtRegistration: mother?.weeks_pregnant_at_registration,
+    weeksPregnant: currentWeek,
     county: mother?.county,
     conditions: Array.isArray(mother?.conditions) ? mother.conditions : [],
     riskLevel: mother?.risk_level || "low",

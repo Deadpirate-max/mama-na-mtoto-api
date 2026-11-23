@@ -84,4 +84,5 @@ router.put("/:phone", requireMotherAuth, updateMother);
 router.put("/:phone/photo", requireMotherAuth, updatePhoto);
 router.delete("/:phone/partner", requireMotherAuth, removePartner);
 router.put("/:phone/push-token", requireMotherAuth, savePushToken);
+router.delete("/:phone", requireMotherAuth, deleteMother);
 module.exports = router;

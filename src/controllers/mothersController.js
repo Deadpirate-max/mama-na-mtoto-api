@@ -804,6 +804,27 @@ const removePartner = asyncHandler(async (req, res) => {
 
   res.json({ success: true, message: "Partner removed" });
 });
+
+const deleteMother = asyncHandler(async (req, res) => {
+  const { phone } = req.params;
+  const normalizedPhone = normalizePhone(phone);
+  const phoneHash = hashForSearch(normalizedPhone);
+
+  // This deletes the mother. (Ensure your DB has ON DELETE CASCADE for visits, labs, alerts, etc.)
+  const result = await pool.query(
+    "DELETE FROM mothers WHERE phone_hash = $1 RETURNING id",
+    [phoneHash],
+  );
+
+  if (result.rows.length === 0) {
+    throw new ApiError(404, "Mother not found");
+  }
+
+  res.json({
+    success: true,
+    message: "Account and all associated data deleted.",
+  });
+});
 const savePushToken = asyncHandler(async (req, res) => {
   const { phone } = req.params;
   const { token } = req.body;
@@ -828,4 +849,5 @@ module.exports = {
   updatePhoto,
   removePartner,
   savePushToken,
+  deleteMother,
 };
