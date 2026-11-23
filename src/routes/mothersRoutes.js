@@ -21,6 +21,7 @@ const {
   updatePhoto,
   removePartner,
   savePushToken,
+  deleteMother,
 } = require("../controllers/mothersController");
 
 const visitsController = require("../controllers/visitsController");
