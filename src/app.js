@@ -25,6 +25,20 @@ app.use(
 );
 app.options("*", cors());
 app.use(express.json({ limit: "10mb" }));
+app.use((req, res, next) => {
+  // We only care about data-modifying requests for this audit
+  if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
+    // Railway terminates TLS at the proxy, so we check the forwarded protocol header
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+    const isSecure = protocol === "https";
+
+    // Log the security context
+    console.log(
+      `🔒 [SECURE AUDIT] ${req.method} ${req.originalUrl} | HTTPS: ${isSecure} | Protocol Header: ${protocol}`,
+    );
+  }
+  next();
+});
 app.use(express.urlencoded({ extended: true }));
 app.use("/api/chat", chatRoutes);
 
