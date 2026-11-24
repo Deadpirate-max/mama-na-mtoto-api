@@ -1,15 +1,23 @@
 const pool = require("../db/pool");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const { ApiError, errorCodes } = require("../utils/ApiError");
 const { asyncHandler } = require("../utils/asyncHandler");
-const { encrypt, decrypt, hashForSearch } = require("../utils/encryption");
-const AfricasTalking = require("africastalking");
+const { generateOtp } = require("../utils/otp");
+const { hashForSearch, encrypt } = require("../utils/encryption");
 
-// ── Phone normalization helper (needed by getAllAlertsForMother) ──────────
+const OTP_LENGTH = parseInt(process.env.OTP_LENGTH || "6", 10);
+const OTP_TTL_MINUTES = parseInt(process.env.OTP_TTL_MINUTES || "5", 10);
+const OTP_MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || "5", 10);
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET is not set — refusing to start");
+
 const normalizePhone = (phone) => {
   if (!phone) return phone;
   let p = phone.toString().replace(/\D/g, "");
   if (p.startsWith("254")) {
-    // Already has country code
+    // ok
   } else if (p.startsWith("0")) {
     p = "254" + p.substring(1);
   } else if (p.length === 9 && (p.startsWith("7") || p.startsWith("1"))) {
@@ -19,359 +27,267 @@ const normalizePhone = (phone) => {
   if (!phone.startsWith("+")) return "+" + phone;
   return phone;
 };
-// Initialize AT once — used for both SMS and WhatsApp
-let sms = null;
-try {
-  const AT = AfricasTalking({
-    apiKey: process.env.AT_API_KEY,
-    username: process.env.AT_USERNAME,
+
+// ── Request OTP ───────────────────────────────────────────────────────────────
+const requestOtp = asyncHandler(async (req, res) => {
+  let { phone } = req.body;
+  phone = normalizePhone(phone);
+
+  if (!phone || !/^\+?[1-9]\d{7,14}$/.test(phone)) {
+    throw new ApiError(
+      422,
+      "A valid phone number is required",
+      errorCodes.VALIDATION_ERROR,
+    );
+  }
+
+  const otpCode = generateOtp(OTP_LENGTH);
+  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+
+  await pool.query(
+    "DELETE FROM otp_codes WHERE phone = $1 AND verified = FALSE",
+    [phone],
+  );
+  await pool.query(
+    "INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)",
+    [phone, otpCode, expiresAt],
+  );
+
+  console.log(`📱 OTP for ${phone}: ${otpCode}`);
+
+  res.status(200).json({
+    success: true,
+    message: "OTP sent successfully",
+    debug_otp: process.env.NODE_ENV === "development" ? otpCode : undefined,
   });
-  sms = AT.SMS;
-} catch (e) {
-  console.warn("⚠️ Africa's Talking not initialized. Check .env variables.");
-}
-
-// ── Send WhatsApp Alert via Africa's Talking ───────────────────────────────
-const sendWhatsAppAlert = async (phone, alertData) => {
-  const { motherName, symptom, severity, riskLevel, recommendation } =
-    alertData;
-
-  if (!process.env.AT_WHATSAPP_PRODUCT_ID) {
-    console.log("⚠️ WhatsApp skipped — AT_WHATSAPP_PRODUCT_ID not set");
-    return false;
-  }
-
-  const normalizedPhone = phone.startsWith("+") ? phone.slice(1) : phone;
-
-  const message =
-    `🚨 *MAMA NA MTOTO+ ALERT*\n\n` +
-    `*Patient:* ${motherName}\n` +
-    `*Symptom:* ${symptom}\n` +
-    `*Severity:* ${severity?.toUpperCase()}\n` +
-    `*Risk Level:* ${(riskLevel || "unknown").toUpperCase()}\n\n` +
-    `*Recommended action:*\n${recommendation || "Assess mother immediately."}\n\n` +
-    `_Please respond immediately._\n` +
-    `_Mama na Mtoto+ — PPH Foundation_`;
-
-  try {
-    const response = await fetch(
-      "https://api.africastalking.com/version1/messaging/whatsapp",
-      {
-        method: "POST",
-        headers: {
-          apiKey: process.env.AT_API_KEY,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          username: process.env.AT_USERNAME,
-          productId: process.env.AT_WHATSAPP_PRODUCT_ID,
-          channel: "whatsapp",
-          to: normalizedPhone,
-          message: { type: "text", text: { body: message } },
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.warn(
-        `⚠️ WhatsApp failed (${response.status}):`,
-        err.slice(0, 200),
-      );
-      return false;
-    }
-
-    console.log(`✅ WhatsApp alert sent to ${phone}`);
-    return true;
-  } catch (error) {
-    console.warn(`⚠️ WhatsApp error for ${phone}:`, error.message);
-    return false;
-  }
-};
-
-// ── Test SMS sender ────────────────────────────────────────────────────────
-const sendTestSMS = async (phone, message) => {
-  if (!sms) return { success: false, error: "AT not initialized" };
-  try {
-    const response = await sms.send({ to: [phone], message });
-    return { success: true, data: response };
-  } catch (error) {
-    console.error("❌ AT Send Error:", error.message);
-    return { success: false, error: error.message };
-  }
-};
-
-const testSendSms = asyncHandler(async (req, res) => {
-  const { phone, message } = req.body;
-  if (!phone || !message) {
-    throw new ApiError(400, "phone and message are required");
-  }
-  const result = await sendTestSMS(phone, message);
-  res.json(result);
 });
-// ── Create Danger Alert ────────────────────────────────────────────────────
-const createDangerAlert = asyncHandler(async (req, res) => {
-  const { phone, message, severity, alert_type } = req.body;
 
-  try {
-    // 1. LOOKUP USING PHONE HASH
-    const normalizedPhone = normalizePhone(phone);
-    const phoneHash = hashForSearch(phone);
-    const { rows } = await pool.query(
-      `SELECT m.id, m.name, m.nurse_name, m.nurse_phone,
-       COALESCE(m.partner_name, '') as partner_name,
-       COALESCE(m.partner_phone, '') as partner_phone,
-       COALESCE(m.facility_name, '') as facility_name
-        FROM mothers m
-        WHERE m.phone_hash = $1`,
-      [phoneHash],
-    );
+// ── Verify OTP ────────────────────────────────────────────────────────────────
+const verifyOtp = asyncHandler(async (req, res) => {
+  let { phone, code } = req.body;
+  phone = normalizePhone(phone);
 
-    const mother = rows[0];
+  const { rows } = await pool.query(
+    `SELECT id, code, expires_at, verified, attempts FROM otp_codes WHERE phone = $1 AND verified = FALSE ORDER BY created_at DESC LIMIT 1`,
+    [phone],
+  );
 
-    if (!mother) {
-      return res.json({
-        success: true,
-        warning:
-          "Mother profile not found in database — alert logged locally only",
-        sms_sent: false,
-      });
-    }
+  if (rows.length === 0)
+    throw new ApiError(404, "No active OTP found.", errorCodes.NOT_FOUND);
+  const otp = rows[0];
 
-    //  2. DECRYPT PII BEFORE SENDING SMS
-    const decryptedMotherName = decrypt(mother.name);
-    const decryptedNursePhone = mother.nurse_phone
-      ? decrypt(mother.nurse_phone)
-      : null;
-    const decryptedPartnerPhone = mother.partner_phone
-      ? decrypt(mother.partner_phone)
-      : null;
+  if (new Date() > new Date(otp.expires_at))
+    throw new ApiError(410, "OTP expired.", errorCodes.BAD_REQUEST);
+  if (otp.attempts >= OTP_MAX_ATTEMPTS)
+    throw new ApiError(429, "Too many attempts.", errorCodes.TOO_MANY_REQUESTS);
 
-    const recipients = [];
-    if (decryptedNursePhone && decryptedNursePhone.length > 8)
-      recipients.push(decryptedNursePhone);
-    if (decryptedPartnerPhone && decryptedPartnerPhone.length > 8)
-      recipients.push(decryptedPartnerPhone);
-
-    let smsSent = false;
-
-    if (recipients.length > 0 && sms) {
-      const smsText =
-        `MAMA NA MTOTO+ ALERT 🚨\n` +
-        `Patient: ${decryptedMotherName || phone}\n` +
-        `Symptom: ${message}\n` +
-        `Severity: ${severity?.toUpperCase()}\n` +
-        `Please respond IMMEDIATELY.\n` +
-        `Mama na Mtoto+`;
-
-      try {
-        await sms.send({ to: recipients, message: smsText });
-        smsSent = true;
-      } catch (smsError) {
-        console.error("SMS send failed:", smsError.message);
-      }
-    }
-
-    // Send WhatsApp (non-blocking)
-    if (decryptedNursePhone) {
-      sendWhatsAppAlert(decryptedNursePhone, {
-        motherName: decryptedMotherName || phone,
-        symptom: message,
-        severity: severity || "critical",
-        riskLevel: "high",
-        recommendation:
-          severity === "critical"
-            ? "Call mother immediately and prepare for referral."
-            : "Follow up within 1 hour.",
-      });
-    }
-
-    // 3. ENCRYPT PII BEFORE SAVING TO ALERTS TABLE
+  if (String(otp.code).trim() !== String(code).trim()) {
     await pool.query(
-      `INSERT INTO alerts
-       (mother_id, mother_phone, symptom, severity, alert_type, nurse_phone, partner_phone, sms_sent, status, fired_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())`,
-      [
-        mother.id,
-        encrypt(phone), // Store encrypted phone
-        message,
-        severity,
-        alert_type,
-        mother.nurse_phone, // Already encrypted in DB
-        mother.partner_phone, // Already encrypted in DB
-        smsSent,
-        "open",
-      ],
+      "UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1",
+      [otp.id],
     );
-
-    res.json({
-      success: true,
-      sms_sent: smsSent,
-      recipients_notified: recipients.length,
-      warning:
-        recipients.length === 0
-          ? "No nurse or partner phone on file — alert saved locally"
-          : null,
-    });
-  } catch (error) {
-    console.error("Alert error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    throw new ApiError(401, "Invalid OTP", errorCodes.UNAUTHORIZED);
   }
-});
 
-// ── Get All Alerts (Enforces Facility Isolation) ───────────────────────────
-const getAllAlerts = async (req, res) => {
-  try {
-    let query = `
-      SELECT a.*, m.name as mother_name 
-      FROM alerts a
-      LEFT JOIN mothers m ON a.mother_id = m.id
-      WHERE 1=1
-    `;
-    const params = [];
+  await pool.query("UPDATE otp_codes SET verified = TRUE WHERE id = $1", [
+    otp.id,
+  ]);
 
-    //  ENFORCE FACILITY ISOLATION
-    if (req.facilityFilter) {
-      query += " AND m.facility_code = $1";
-      params.push(req.facilityFilter);
-    }
-
-    query +=
-      " ORDER BY COALESCE(a.fired_at, a.created_at, NOW()) DESC LIMIT 100";
-
-    const alertsResult = await pool.query(query, params);
-
-    //  DECRYPT PII BEFORE SENDING TO DASHBOARD
-    const alerts = alertsResult.rows.map((alert) => ({
-      id: alert.id,
-      motherId: alert.mother_id,
-      motherPhone: alert.mother_phone ? decrypt(alert.mother_phone) : null,
-      motherName: alert.mother_name ? decrypt(alert.mother_name) : null,
-      symptom: alert.symptom,
-      dangerSign: alert.symptom,
-      message: alert.message || alert.symptom,
-      severity: alert.severity,
-      status: alert.status,
-      alertType: alert.alert_type,
-      nursePhone: alert.nurse_phone ? decrypt(alert.nurse_phone) : null,
-      partnerPhone: alert.partner_phone ? decrypt(alert.partner_phone) : null,
-      smsSent: alert.sms_sent,
-      firedAt: alert.fired_at,
-      createdAt: alert.created_at,
-      acknowledgedAt: alert.acknowledged_at,
-      resolvedAt: alert.resolved_at,
-    }));
-
-    res.status(200).json({ success: true, data: alerts });
-  } catch (error) {
-    console.error("getAllAlerts error:", error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
-// ── Update Alert Status ────────────────────────────────────────────────────
-const updateAlert = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (!["open", "acknowledged", "resolved"].includes(status)) {
-      return res.status(400).json({ success: false, error: "Invalid status." });
-    }
-
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(id)) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid alert ID format" });
-    }
-
-    //  Ensure the alert belongs to the nurse's facility
-    if (req.facilityFilter) {
-      const { rows } = await pool.query(
-        `SELECT m.facility_code FROM alerts a JOIN mothers m ON a.mother_id = m.id WHERE a.id = $1`,
-        [id],
-      );
-      if (rows.length === 0 || rows[0].facility_code !== req.facilityFilter) {
-        return res
-          .status(403)
-          .json({ success: false, error: "Unauthorized to update this alert" });
-      }
-    }
-
-    const result = await pool.query(
-      `UPDATE alerts SET status = $1 WHERE id = $2 RETURNING *`,
-      [status, id],
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Alert not found" });
-    }
-
-    const alert = result.rows[0];
-
-    if (status === "acknowledged") {
-      await pool.query(
-        `UPDATE alerts SET acknowledged_at = NOW() WHERE id = $1`,
-        [id],
-      );
-    } else if (status === "resolved") {
-      await pool.query(`UPDATE alerts SET resolved_at = NOW() WHERE id = $1`, [
-        id,
-      ]);
-    }
-
-    res.json({ success: true, data: alert });
-  } catch (error) {
-    console.error("updateAlert error:", error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-const getAllAlertsForMother = asyncHandler(async (req, res) => {
-  const { phone } = req.params;
-  const normalizedPhone = normalizePhone(phone);
-  const phoneHash = hashForSearch(normalizedPhone);
-
-  const motherRes = await pool.query(
+  const phoneHash = hashForSearch(phone);
+  const motherCheck = await pool.query(
     "SELECT id FROM mothers WHERE phone_hash = $1",
     [phoneHash],
   );
-  if (motherRes.rows.length === 0) {
-    return res.json({ success: true, data: [] });
+  const isNewUser = motherCheck.rows.length === 0;
+
+  const token = jwt.sign({ phone, isNewUser }, JWT_SECRET, {
+    expiresIn: "30d",
+  });
+
+  res.status(200).json({
+    success: true,
+    data: { message: "OTP verified", phone, verified: true, isNewUser, token },
+  });
+});
+
+// ── Set PIN ───────────────────────────────────────────────────────────────────
+const setPin = async (req, res) => {
+  try {
+    let { phone, pin } = req.body;
+    phone = normalizePhone(phone);
+
+    if (!/^\d{4}$/.test(pin.toString()))
+      return res
+        .status(400)
+        .json({ success: false, error: "PIN must be 4 digits" });
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPin = await bcrypt.hash(pin.toString(), salt);
+    const phoneHash = hashForSearch(phone);
+
+    const result = await pool.query(
+      `UPDATE mothers SET pin_hash = $1, pin_set = TRUE WHERE phone_hash = $2 RETURNING phone`,
+      [hashedPin, phoneHash],
+    );
+
+    if (result.rows.length === 0) {
+      return res
+        .status(404)
+        .json({
+          success: false,
+          error: "Mother profile not found. Cannot save PIN.",
+        });
+    }
+
+    res.json({ success: true, message: "PIN set successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
+};
 
-  const motherId = motherRes.rows[0].id;
+// ── Verify PIN ────────────────────────────────────────────────────────────────
+const verifyPin = async (req, res) => {
+  try {
+    let { phone, pin } = req.body;
+    phone = normalizePhone(phone);
+    const phoneHash = hashForSearch(phone);
 
-  const alertsRes = await pool.query(
-    "SELECT * FROM alerts WHERE mother_id = $1 ORDER BY created_at DESC LIMIT 20",
-    [motherId],
+    const result = await pool.query(
+      "SELECT pin_hash, pin_set FROM mothers WHERE phone_hash = $1",
+      [phoneHash],
+    );
+
+    if (result.rows.length === 0)
+      return res
+        .status(404)
+        .json({ success: false, error: "Mother not found" });
+    const { pin_hash, pin_set } = result.rows[0];
+
+    if (!pin_set || !pin_hash)
+      return res.status(400).json({ success: false, error: "No PIN set" });
+
+    const isValid = await bcrypt.compare(pin.toString(), pin_hash);
+    if (!isValid)
+      return res.status(401).json({ success: false, error: "Incorrect PIN" });
+
+    res.json({ success: true, message: "PIN verified successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ── Account Recovery Step 1 ───────────────────────────────────────────────────
+const recoverAccount = asyncHandler(async (req, res) => {
+  let { idNumber, fullName, newPhone } = req.body;
+  newPhone = normalizePhone(newPhone);
+
+  const idHash = hashForSearch(idNumber);
+  const nameHash = hashForSearch(fullName.trim().toLowerCase());
+
+  const result = await pool.query(
+    `SELECT id, phone FROM mothers WHERE id_number_hash = $1 AND name_hash = $2`,
+    [idHash, nameHash],
   );
 
-  //  Decrypt phone numbers before sending back to the app
-  const alerts = alertsRes.rows.map((a) => ({
-    id: a.id,
-    motherId: a.mother_id,
-    symptom: a.symptom,
-    message: a.message || a.symptom,
-    severity: a.severity,
-    status: a.status,
-    alertType: a.alert_type,
-    smsSent: a.sms_sent,
-    firedAt: a.fired_at,
-    createdAt: a.created_at,
-  }));
+  if (result.rows.length === 0)
+    throw new ApiError(404, "Mother not found.", errorCodes.NOT_FOUND);
 
-  res.json({ success: true, data: alerts });
+  const motherId = result.rows[0].id;
+  const oldPhone = result.rows[0].phone;
+
+  const otpCode = generateOtp(OTP_LENGTH);
+  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+
+  await pool.query(
+    "DELETE FROM otp_codes WHERE phone = $1 AND verified = FALSE",
+    [newPhone],
+  );
+  await pool.query(
+    "INSERT INTO otp_codes (phone, code, expires_at) VALUES ($1, $2, $3)",
+    [newPhone, otpCode, expiresAt],
+  );
+
+  const recoveryToken = jwt.sign(
+    { motherId, oldPhone, newPhone, action: "recovery" },
+    JWT_SECRET,
+    { expiresIn: "15m" },
+  );
+
+  res
+    .status(200)
+    .json({ success: true, recoveryToken, message: "OTP sent to new number." });
+});
+
+// ── Account Recovery Step 2 ───────────────────────────────────────────────────
+const confirmRecovery = asyncHandler(async (req, res) => {
+  const { recoveryToken, otp, newPhone, newPin } = req.body;
+
+  let tokenData;
+  try {
+    tokenData = jwt.verify(recoveryToken, JWT_SECRET);
+  } catch {
+    throw new ApiError(401, "Recovery token invalid.", errorCodes.UNAUTHORIZED);
+  }
+
+  // DEFINE normalizedNew
+  const normalizedNew = normalizePhone(newPhone);
+
+  if (tokenData.action !== "recovery" || tokenData.newPhone !== normalizedNew)
+    throw new ApiError(401, "Token mismatch.", errorCodes.UNAUTHORIZED);
+
+  const { rows } = await pool.query(
+    `SELECT id, code, expires_at FROM otp_codes WHERE phone = $1 AND verified = FALSE ORDER BY created_at DESC LIMIT 1`,
+    [normalizedNew],
+  );
+
+  if (rows.length === 0 || String(rows[0].code).trim() !== String(otp).trim())
+    throw new ApiError(401, "Invalid OTP.", errorCodes.UNAUTHORIZED);
+  if (new Date() > new Date(rows[0].expires_at))
+    throw new ApiError(410, "OTP expired.", errorCodes.BAD_REQUEST);
+
+  const motherId = tokenData.motherId;
+  let hashedPin = null;
+  let pinSet = false;
+
+  if (newPin && /^\d{4}$/.test(String(newPin))) {
+    const salt = await bcrypt.genSalt(10);
+    hashedPin = await bcrypt.hash(String(newPin), salt);
+    pinSet = true;
+  }
+
+  const newPhoneHash = hashForSearch(normalizedNew);
+
+  const updateResult = await pool.query(
+    `UPDATE mothers SET phone = $1, phone_hash = $2, pin_hash = $3, pin_set = $4 WHERE id = $5 RETURNING id`,
+    [encrypt(normalizedNew), newPhoneHash, hashedPin, pinSet, motherId],
+  );
+
+  if (updateResult.rows.length === 0) {
+    throw new ApiError(
+      404,
+      "Mother not found for this recovery token.",
+      errorCodes.NOT_FOUND,
+    );
+  }
+
+  await pool.query("UPDATE otp_codes SET verified = TRUE WHERE id = $1", [
+    rows[0].id,
+  ]);
+
+  res
+    .status(200)
+    .json({
+      success: true,
+      message: "Phone updated. Please sign in.",
+      newPhone: normalizedNew,
+    });
 });
 
 module.exports = {
-  createDangerAlert,
-  getAllAlerts,
-  updateAlert,
-  testSendSms,
-  sendWhatsAppAlert,
-  sendTestSMS,
-  getAllAlertsForMother,
+  requestOtp,
+  verifyOtp,
+  setPin,
+  verifyPin,
+  recoverAccount,
+  confirmRecovery,
 };
