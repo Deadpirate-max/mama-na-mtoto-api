@@ -258,7 +258,7 @@ const confirmRecovery = asyncHandler(async (req, res) => {
   if (new Date() > new Date(rows[0].expires_at))
     throw new ApiError(410, "OTP expired.", errorCodes.BAD_REQUEST);
 
-  const oldPhone = tokenData.oldPhone;
+  const motherId = tokenData.motherId;
   let hashedPin = null;
   let pinSet = false;
 
@@ -268,15 +268,21 @@ const confirmRecovery = asyncHandler(async (req, res) => {
     pinSet = true;
   }
 
-  const oldPhoneHash = hashForSearch(oldPhone);
   const newPhoneHash = hashForSearch(normalizedNew);
-
-  // UPDATE PHONE, ENCRYPT NEW PHONE, UPDATE HASH
   const { encrypt } = require("../utils/encryption");
-  await pool.query(
-    `UPDATE mothers SET phone = $1, phone_hash = $2, pin_hash = $3, pin_set = $4 WHERE phone_hash = $5 AND deleted_at IS NULL`,
-    [encrypt(normalizedNew), newPhoneHash, hashedPin, pinSet, oldPhoneHash],
+
+  const updateResult = await pool.query(
+    `UPDATE mothers SET phone = $1, phone_hash = $2, pin_hash = $3, pin_set = $4 WHERE id = $5 RETURNING id`,
+    [encrypt(normalizedNew), newPhoneHash, hashedPin, pinSet, motherId],
   );
+
+  if (updateResult.rows.length === 0) {
+    throw new ApiError(
+      404,
+      "Mother not found for this recovery token.",
+      errorCodes.NOT_FOUND,
+    );
+  }
 
   await pool.query("UPDATE otp_codes SET verified = TRUE WHERE id = $1", [
     rows[0].id,
