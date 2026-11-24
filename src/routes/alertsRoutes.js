@@ -22,16 +22,16 @@ const dangerAlertSchema = {
   },
 };
 
-// ── Public Routes (Mobile App / System triggers) ───────────────────────────
+// Public
 router.post("/danger", validate(dangerAlertSchema), createDangerAlert);
 router.post("/test-sms", testSendSms);
 
-// ── Protected Dashboard Routes (Requires Login + Facility Isolation) ───────
+// Protected
 router.get("/", authenticate, facilityIsolation, getAllAlerts);
 router.patch("/:id", authenticate, facilityIsolation, updateAlert);
 router.post("/", authenticate, createDangerAlert);
 
-// ── Mother-specific routes ─────────────────────────────────────────────────
+// Mother specific
 router.get("/mother/:phone", getAllAlertsForMother);
 
 module.exports = router;
