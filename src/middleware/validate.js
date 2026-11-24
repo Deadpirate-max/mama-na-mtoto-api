@@ -1,6 +1,7 @@
-const { ApiError, errorCodes } = require("../utils/ApiError");
+// src/middleware/validate.js
 
 const validate = (schema) => {
+  //  CRITICAL: You MUST return the middleware function
   return (req, res, next) => {
     const errors = [];
 
