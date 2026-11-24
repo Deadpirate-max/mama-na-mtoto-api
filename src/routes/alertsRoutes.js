@@ -7,6 +7,8 @@ const {
   getAllAlerts,
   updateAlert,
   testSendSms,
+  sendWhatsAppAlert,
+  sendTestSMS,
   getAllAlertsForMother,
 } = require("../controllers/alertsController");
 
@@ -27,5 +29,9 @@ router.post("/test-sms", testSendSms);
 // ── Protected Dashboard Routes (Requires Login + Facility Isolation) ───────
 router.get("/", authenticate, facilityIsolation, getAllAlerts);
 router.patch("/:id", authenticate, facilityIsolation, updateAlert);
+router.post("/", authenticate, createDangerAlert);
+
+// ── Mother-specific routes ─────────────────────────────────────────────────
 router.get("/mother/:phone", getAllAlertsForMother);
+
 module.exports = router;
