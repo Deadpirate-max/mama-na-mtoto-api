@@ -223,11 +223,10 @@ const recoverAccount = asyncHandler(async (req, res) => {
   );
 
   const recoveryToken = jwt.sign(
-    { motherId, newPhone: normalizedNew, action: "recovery" },
+    { motherId, newPhone: newPhone, action: "recovery" },
     JWT_SECRET,
     { expiresIn: "15m" },
   );
-
   res
     .status(200)
     .json({ success: true, recoveryToken, message: "OTP sent to new number." });
