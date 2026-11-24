@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
-const { decrypt } = require("../utils/encryption");
+const { decrypt, hashForSearch } = require("../utils/encryption"); // 👈 Import hashForSearch
 
 // Helper: generate 8-character alphanumeric code (e.g., 5UDNX92P)
 function generateCode() {
@@ -12,6 +12,7 @@ function generateCode() {
   }
   return code;
 }
+
 const safeDecrypt = (val) => {
   if (!val) return null;
   try {
@@ -35,10 +36,8 @@ router.get("/:code", async (req, res) => {
          n.name as nurse_name, n.phone as nurse_phone
        FROM registration_codes rc
        LEFT JOIN nurses n ON rc.nurse_id::text = n.id::text
-       LEFT JOIN mothers m ON m.phone_hash = hashForSearch(rc.mother_phone) 
        WHERE TRIM(UPPER(rc.code)) = $1 
-       AND (rc.used = FALSE OR rc.used IS NULL)
-       AND (m.deleted_at IS NULL OR m.id IS NULL)`,
+       AND (rc.used = FALSE OR rc.used IS NULL)`,
       [cleanCode],
     );
 
@@ -50,6 +49,14 @@ router.get("/:code", async (req, res) => {
     }
 
     const data = result.rows[0];
+
+    if (data.expires_at && new Date(data.expires_at) < new Date()) {
+      return res.status(410).json({
+        success: false,
+        error:
+          "This registration code has expired. Ask your nurse for a new one.",
+      });
+    }
 
     res.json({
       success: true,
@@ -88,24 +95,24 @@ router.post("/", async (req, res) => {
       facilityCode,
     } = req.body;
 
-    // 👇 FIX: Query the 'nurses' table instead of 'users'
-    const userResult = await pool.query(
-      `SELECT id FROM nurses WHERE phone = $1 AND role IN ('chv', 'nurse')`,
-      [chvPhone],
+    const { normalizePhone } = require("../utils/phone");
+    const normalizedChvPhone = normalizePhone(chvPhone);
+    const nurseResult = await pool.query(
+      `SELECT id FROM nurses WHERE phone_hash = $1 AND role IN ('chv', 'nurse', 'midwife', 'doctor', 'clinical_officer', 'general_practitioner', 'obstetrician')`,
+      [hashForSearch(normalizedChvPhone)],
     );
 
-    if (userResult.rows.length === 0) {
+    if (nurseResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: "Nurse/CHV not found",
       });
     }
-    const nurseId = userResult.rows[0].id;
+    const nurseId = nurseResult.rows[0].id;
 
     const code = generateCode();
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-    // 👇 FIX: Use 'nurse_id' instead of 'chv_id' in the INSERT
     await pool.query(
       `INSERT INTO registration_codes
        (code, mother_phone, mother_name, weeks_pregnant, nurse_id, facility_name, facility_code, expires_at)
