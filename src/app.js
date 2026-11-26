@@ -11,6 +11,7 @@ const { errorHandler, notFound } = require("./middleware/errorHandler");
 const chvRoutes = require("./routes/chvRoutes");
 const chatRoutes = require("./routes/chatRoutes");
 const facilitiesRoutes = require("./routes/facilitiesRoutes");
+const consentRoutes = require("./routes/consentRoutes");
 const app = express();
 
 // ── Security & parsing (must come before routes) ──────────────────────────────
@@ -26,9 +27,7 @@ app.use(
 app.options("*", cors());
 app.use(express.json({ limit: "10mb" }));
 app.use((req, res, next) => {
-  // We only care about data-modifying requests for this audit
   if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
-    // Railway terminates TLS at the proxy, so we check the forwarded protocol header
     const protocol = req.headers["x-forwarded-proto"] || req.protocol;
     const isSecure = protocol === "https";
 
@@ -66,6 +65,7 @@ app.use("/api/nurses", nursesRoutes);
 app.use("/api/registrations", registrationsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/chv", chvRoutes);
+app.use("/api/consents", consentRoutes);
 
 // ── Error handling (must be last) ─────────────────────────────────────────────
 app.use(notFound);

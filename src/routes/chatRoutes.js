@@ -8,14 +8,21 @@ const {
   transcribeVoice,
   generateTTS,
 } = require("../controllers/chatController");
+const { requireConsent } = require("../controllers/consentController");
 
-// Existing text route
-router.post("/message", requireMotherAuth, sendChatMessage);
-
-//  Use the correct middleware name (requireMotherAuth) for the voice route
-router.post("/voice", requireMotherAuth, transcribeVoice);
-
-// TTS
-router.post("/tts", requireMotherAuth, generateTTS);
+router.post(
+  "/message",
+  requireMotherAuth,
+  requireConsent("ai_chat"),
+  sendChatMessage,
+);
+router.post(
+  "/voice",
+  requireMotherAuth,
+  requireConsent("voice"),
+  requireConsent("ai_chat"),
+  transcribeVoice,
+);
+router.post("/tts", requireMotherAuth, requireConsent("voice"), generateTTS);
 
 module.exports = router;
