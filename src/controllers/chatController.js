@@ -6,18 +6,10 @@ const { detectRedFlags } = require("../ai/redFlags");
 const multer = require("multer");
 
 // ── Audio Upload Configuration ─────────────────────────────────────────────
-// Keeps audio in memory (not saved to disk) and limits size to 5MB
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-  fileFilter: (_req, file, cb) =>
-    cb(
-      null,
-      /^audio\//.test(file.mimetype) ||
-        file.mimetype === "application/octet-stream",
-    ),
 });
-
 // ── Lazy-load OpenAI (Prevents crash if keys are missing) ──────────────────
 let openai = null;
 function getOpenAI() {
@@ -190,73 +182,51 @@ async function escalate({ phone, flags, urgency, message, symptom }) {
 exports.transcribeVoice = [
   upload.single("audio"),
   asyncHandler(async (req, res) => {
-    const phone = req.mother?.phone;
-    if (!phone)
-      throw new ApiError(
-        401,
-        "Authentication required",
-        errorCodes.UNAUTHORIZED,
-      );
-    if (!req.file) throw new ApiError(400, "No audio file provided");
-    if (!checkRateLimit(`stt:${phone}`)) {
-      throw new ApiError(
-        429,
-        "Too many recordings. Please wait a minute.",
-        errorCodes.TOO_MANY_REQUESTS,
-      );
+    console.log("🎤 [VOICE ENDPOINT HIT]");
+
+    if (!req.file) {
+      console.error("❌ No file uploaded in request");
+      throw new ApiError(400, "No audio file provided");
     }
 
-    const forced =
-      req.body.forceLang === "true" && ["sw", "en"].includes(req.body.lang)
-        ? req.body.lang
-        : undefined;
+    console.log(
+      `✅ File received: ${req.file.size} bytes, Mime: ${req.file.mimetype}`,
+    );
 
-    const file = new File([req.file.buffer], "voice.m4a", {
-      type: req.file.mimetype || "audio/m4a",
-    });
+    try {
+      const client = getOpenAI();
+      const file = new File([req.file.buffer], "audio.m4a", {
+        type: req.file.mimetype || "audio/m4a",
+      });
 
-    // Use Whisper with a Swahili bias prompt
-    const tr = await getOpenAI().audio.transcriptions.create({
-      file,
-      model: "whisper-1",
-      response_format: "verbose_json",
-      temperature: 0,
-      prompt:
-        "Mama na Mtoto. Ujauzito, mimba, kichwa kinauma, tumbo linauma, damu, mtoto hasogei, maji yamevunjika, kliniki, mtaalamu wa afya, shinikizo la damu.",
-      ...(forced ? { language: forced } : {}),
-    });
-    if (tr.segments && tr.segments.length > 0) {
-      const avgLogProb =
-        tr.segments.reduce((acc, seg) => acc + seg.avg_logprob, 0) /
-        tr.segments.length;
-      // If the confidence is very low (e.g., background noise), reject it
-      if (avgLogProb < -0.8) {
-        return res.json({
-          success: false,
-          error:
-            "Could not hear you clearly. Please try again in a quiet place.",
-        });
-      }
+      const tr = await client.audio.transcriptions.create({
+        file: file,
+        model: "whisper-1",
+        response_format: "verbose_json",
+        temperature: 0,
+        prompt:
+          "Mama na Mtoto. Ujauzito, mimba, kichwa kinauma, tumbo linauma, damu, mtoto hasogei, maji yamevunjika, kliniki, mtaalamu wa afya, shinikizo la damu.",
+        language: req.body.lang === "sw" ? "sw" : "en",
+      });
+
+      console.log("✅ Transcription Success:", tr.text);
+
+      const detection = detectRedFlags(tr.text);
+
+      res.json({
+        success: true,
+        text: tr.text,
+        data: {
+          text: tr.text,
+          language: req.body.lang,
+          urgency: detection.urgency,
+          crisis: detection.crisis,
+        },
+      });
+    } catch (err) {
+      console.error("❌ Whisper API Error:", err.message);
+      throw new ApiError(500, `Whisper failed: ${err.message}`);
     }
-
-    const text = (tr.text || "").trim();
-    const language = /swahili|^sw/i.test(tr.language || "")
-      ? "sw"
-      : /english|^en/i.test(tr.language || "")
-        ? "en"
-        : null;
-    const detection = detectRedFlags(text);
-
-    res.json({
-      success: true,
-      text,
-      data: {
-        text,
-        language,
-        urgency: detection.urgency,
-        crisis: detection.crisis,
-      },
-    });
   }),
 ];
 
