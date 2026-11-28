@@ -16,13 +16,7 @@ router.post(
   requireConsent("ai_chat"),
   sendChatMessage,
 );
-router.post(
-  "/voice",
-  requireMotherAuth,
-  requireConsent("voice"),
-  requireConsent("ai_chat"),
-  transcribeVoice,
-);
+router.post("/voice", requireMotherAuth, transcribeVoice);
 router.post("/tts", requireMotherAuth, requireConsent("voice"), generateTTS);
 
 module.exports = router;
