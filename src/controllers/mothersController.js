@@ -368,7 +368,7 @@ const createMother = asyncHandler(async (req, res) => {
         nurse_entered, mother_entered, field_conflicts,
         facility_name, facility_code, age, weeks_pregnant_at_registration,
         registration_date, edd, lmp_date, gravida, para, blood_group, address, conditions,
-        nurse_name, nurse_phone,
+        nurse_name, nurse_phone, terms_accepted_at,
         created_at, updated_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 
