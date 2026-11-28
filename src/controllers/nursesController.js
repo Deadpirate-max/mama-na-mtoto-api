@@ -62,11 +62,46 @@ const nurseLogin = asyncHandler(async (req, res) => {
       errorCodes.FORBIDDEN,
     );
   }
+  if (nurse.lock_until && new Date() < new Date(nurse.lock_until)) {
+    throw new ApiError(
+      403,
+      "Account locked due to too many failed attempts. Try again in 15 minutes.",
+    );
+  }
 
   const isValidPin = await bcrypt.compare(pin.toString(), nurse.pin_hash);
   if (!isValidPin) {
     throw new ApiError(401, "Invalid credentials", errorCodes.UNAUTHORIZED);
   }
+
+  if (!isValidPin) {
+    // Increment attempts
+    const attempts = (nurse.pin_attempts || 0) + 1;
+    if (attempts >= 5) {
+      // Lock for 15 minutes
+      const lockTime = new Date(Date.now() + 15 * 60 * 1000);
+      await pool.query(
+        "UPDATE nurses SET pin_attempts = $1, lock_until = $2 WHERE id = $3",
+        [attempts, lockTime, nurse.id],
+      );
+      throw new ApiError(
+        403,
+        "Account locked for 15 minutes due to 5 failed attempts.",
+      );
+    } else {
+      await pool.query("UPDATE nurses SET pin_attempts = $1 WHERE id = $2", [
+        attempts,
+        nurse.id,
+      ]);
+      throw new ApiError(401, "Invalid credentials");
+    }
+  }
+
+  // If successful, reset attempts
+  await pool.query(
+    "UPDATE nurses SET pin_attempts = 0, lock_until = NULL WHERE id = $1",
+    [nurse.id],
+  );
 
   const safeNurse = {
     id: nurse.id,

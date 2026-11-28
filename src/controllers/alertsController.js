@@ -274,7 +274,7 @@ const getAllAlerts = async (req, res) => {
 const updateAlert = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, outcome } = req.body;
 
     if (!["open", "acknowledged", "resolved"].includes(status)) {
       return res.status(400).json({ success: false, error: "Invalid status." });
@@ -302,8 +302,8 @@ const updateAlert = async (req, res) => {
     }
 
     const result = await pool.query(
-      `UPDATE alerts SET status = $1 WHERE id = $2 RETURNING *`,
-      [status, id],
+      `UPDATE alerts SET status = $1, outcome = COALESCE($2, outcome), resolved_at = CASE WHEN $1 = 'resolved' THEN NOW() ELSE resolved_at END WHERE id = $3 RETURNING *`,
+      [status, outcome || null, id],
     );
 
     if (result.rows.length === 0) {
